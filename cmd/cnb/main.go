@@ -24,7 +24,7 @@ func main() {
 		if len(os.Args) != 3 {
 			log.Fatal("Error: detect requires two arguments")
 		}
-		if err := pf.Detect(os.Args[1], os.Args[2]); err != nil {
+		if err := packfile.Detect(&pf, os.Args[1], os.Args[2]); err != nil {
 			log.Fatalf("Error: %s", err)
 		}
 	case "build":

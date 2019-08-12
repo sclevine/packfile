@@ -28,17 +28,17 @@ type Layer struct {
 	Expose   bool              `toml:"expose"`
 	Version  string            `toml:"version"`
 	Metadata map[string]string `toml:"metadata"`
-	Detect   Detect            `toml:"detect"`
-	Build    Build             `toml:"build"`
-	Launch   Launch            `toml:"launch"`
+	Detect   DetectAction      `toml:"detect"`
+	Build    BuildAction       `toml:"build"`
+	Launch   LaunchAction      `toml:"launch"`
 }
 
-type Detect struct {
+type DetectAction struct {
 	Exec
 	Require []DetectRequire `toml:"require"`
 }
 
-type Build struct {
+type BuildAction struct {
 	Exec
 	Require  []BuildRequire `toml:"require"`
 	Deps     []Dep          `toml:"deps"`
@@ -60,7 +60,7 @@ type BuildRequire struct {
 	MetadataEnv string `toml:"metadata-as"`
 }
 
-type Launch struct {
+type LaunchAction struct {
 	Profile []File `toml:"profile"`
 	Env     []Env  `toml:"env"`
 }
