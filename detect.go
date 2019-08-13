@@ -1,13 +1,14 @@
 package packfile
 
 import (
-	"github.com/sclevine/packfile/layer"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
-
+	
 	"golang.org/x/xerrors"
+
+	"github.com/sclevine/packfile/layer"
 )
 
 func Detect(pf *Packfile, platformDir, planPath string) error {
@@ -21,7 +22,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	var mux layer.Mux
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
-		mux = mux.For(lp.Name)
+		mux = mux.For(lp.Name, detectRequires(lp))
 		go detectLayer(lp, mux, appDir)
 	}
 	mux.StreamAll(os.Stdout, os.Stderr)
@@ -30,32 +31,42 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	return nil
 }
 
+func detectRequires(l *Layer) []layer.Require {
+	var out []layer.Require
+	for _, r := range l.Detect.Require {
+		out = append(out, layer.Require{
+			Name:        r.Name,
+			VersionEnv:  r.VersionEnv,
+			MetadataEnv: r.MetadataEnv,
+		})
+	}
+	return out
+}
+
 func detectLayer(l *Layer, mux layer.Mux, appDir string) {
 	env := os.Environ()
 	env = append(env, "APP="+appDir)
 
-	for _, r := range l.Detect.Require {
-		result, ok := mux.Wait(r.Name)
-		if !ok {
-			mux.Done(layer.Result{Err: xerrors.Errorf("require '%s' not found", r.Name)})
-			return
+	if err := mux.Wait(func(req layer.Require, res layer.Result) error {
+		if res.Err != nil {
+			return xerrors.Errorf("require '%s' failed: %w", req.Name, res.Err)
 		}
-		if result.Err != nil {
-			mux.Done(layer.Result{Err: xerrors.Errorf("require '%s' failed: %w", r.Name, result.Err)})
-			return
-		}
-		if r.VersionEnv != "" {
-			if version, err := ioutil.ReadFile(filepath.Join(result.Path, "version")); err == nil {
-				env = append(env, r.VersionEnv+"="+string(version))
+		if req.VersionEnv != "" {
+			if version, err := ioutil.ReadFile(filepath.Join(res.Path, "version")); err == nil {
+				env = append(env, req.VersionEnv+"="+string(version))
 			} else if !os.IsNotExist(err) {
-				mux.Done(layer.Result{Err: err})
-				return
+				return err
 			}
 		}
-		if r.MetadataEnv != "" {
-			env = append(env, r.MetadataEnv+"="+result.Path)
+		if req.MetadataEnv != "" {
+			env = append(env, req.MetadataEnv+"="+res.Path)
 		}
+		return nil
+	}); err != nil {
+		mux.Done(layer.Result{Err: err})
+		return
 	}
+
 	dir, err := ioutil.TempDir("", "packfile."+l.Name)
 	if err != nil {
 		mux.Done(layer.Result{Err: err})

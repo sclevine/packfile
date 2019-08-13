@@ -4,16 +4,26 @@ import (
 	"bufio"
 	"io"
 	"sync"
+
+	"golang.org/x/xerrors"
 )
 
 type Mux []layer
 
 type layer struct {
 	name   string
+	reqs   []Require
 	wg     *sync.WaitGroup
 	result *Result
 	stdout *BufferPipe
 	stderr *BufferPipe
+}
+
+type Require struct {
+	Name        string
+	Write       bool
+	VersionEnv  string
+	MetadataEnv string
 }
 
 type Result struct {
@@ -21,12 +31,13 @@ type Result struct {
 	Path string
 }
 
-func (m Mux) For(name string) Mux {
+func (m Mux) For(name string, reqs []Require) Mux {
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
 	return append(m, layer{
 		name:   name,
+		reqs:   reqs,
 		wg:     wg,
 		result: &Result{},
 		stdout: NewBufferPipe(),
@@ -34,36 +45,48 @@ func (m Mux) For(name string) Mux {
 	})
 }
 
-func (m Mux) Wait(name string) (Result, bool) {
-	if len(m) == 0 {
-		return Result{}, false
-	}
-	for _, layer := range m[:len(m)-1] {
-		if layer.name == name {
-			layer.wg.Wait()
-			return *layer.result, true
+func (l *layer) writes(name string) bool {
+	for _, req := range l.reqs {
+		if req.Name == name && req.Write {
+			return true
 		}
 	}
-	return Result{}, false
+	return false
 }
 
-//func (m Mux) NewWait(fn ) ([]Result, error) {
-//	if len(m) == 0 {
-//		return nil, nil
-//	}
-//	for i, layer := range m[:len(m)-1] {
-//		if layer.name == name {
-//			layer.wg.Wait()
-//
-//			for _, r := range m[i+1:len(m)-1] {
-//
-//			}
-//
-//			return *layer.result, true
-//		}
-//	}
-//	return Result{}, false
-//}
+func (m Mux) find(name string) int {
+	if len(m) == 0 {
+		return -1
+	}
+	for i := range m[:len(m)-1] {
+		if m[i].name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m Mux) Wait(fn func(req Require, res Result) error) error {
+	if len(m) == 0 {
+		return nil
+	}
+	for _, req := range m[len(m)-1].reqs {
+		i := m.find(req.Name)
+		if i < 0 {
+			return xerrors.Errorf("require '%s' not found", req.Name)
+		}
+		m[i].wg.Wait()
+		for _, after := range m[i+1 : len(m)-1] {
+			if after.writes(m[i].name) {
+				after.wg.Wait()
+			}
+		}
+		if err := fn(req, *m[i].result); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func (m Mux) WaitAll() { // should return build plan
 	for _, layer := range m {
