@@ -1,39 +1,129 @@
 package packfile
 
 import (
+	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
-	
+	"strings"
+	"syscall"
+
+	"github.com/BurntSushi/toml"
+
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile/layer"
 )
 
+type planProvide struct {
+	Name string `toml:"name"`
+}
+
+type planRequire struct {
+	Name     string            `toml:"name"`
+	Version  string            `toml:"version"`
+	Metadata map[string]string `toml:"metadata"`
+}
+
+type planSections struct {
+	Requires []planRequire `toml:"requires"`
+	Provides []planProvide `toml:"provides"`
+}
+
 func Detect(pf *Packfile, platformDir, planPath string) error {
-	if err := loadEnv(filepath.Join(platformDir, "env")); err != nil {
-		return err
-	}
 	appDir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
+	shell := "/usr/bin/env bash"
+	if s := pf.Config.Shell; s != "" {
+		shell = s
+	}
+	var requires []planRequire
+	var provides []planProvide
 	var mux layer.Mux
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
-		mux = mux.For(lp.Name, detectRequires(lp))
-		go detectLayer(lp, mux, appDir)
+		if lp.Build != nil {
+			provides = append(provides, planProvide{Name: lp.Name})
+		}
+		if lp.Detect == nil {
+			continue
+		}
+		mdDir, err := ioutil.TempDir("", "packfile."+lp.Name)
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(mdDir)
+		mux = mux.For(lp.Name, detectRequires(lp.Detect.Require))
+		go detectLayer(lp, mux, shell, mdDir, appDir)
 	}
 	mux.StreamAll(os.Stdout, os.Stderr)
-	mux.WaitAll()
-
+	for _, res := range mux.WaitAll() {
+		if IsFail(res.Err) {
+			continue
+		} else if err != nil {
+			return xerrors.Errorf("error for layer '%s': %w", res.Name, err)
+		}
+		req, err := readRequire(res.Name, res.Path)
+		if err != nil {
+			return xerrors.Errorf("invalid metadata for layer '%s': %w", res.Name, err)
+		}
+		requires = append(requires, req)
+	}
+	f, err := os.Create(planPath)
+	if err != nil {
+		return err
+	}
+	if err := toml.NewEncoder(f).Encode(planSections{requires, provides}); err != nil {
+		return err
+	}
 	return nil
 }
 
-func detectRequires(l *Layer) []layer.Require {
+func eachFile(dir string, fn func(name, path string) error) error {
+	files, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		if !f.IsDir() {
+			continue
+		}
+		if err := fn(f.Name(), filepath.Join(dir, f.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readRequire(name, path string) (planRequire, error) {
+	out := planRequire{
+		Name:     name,
+		Metadata: map[string]string{},
+	}
+	if err := eachFile(path, func(name, path string) error {
+		value, err := ioutil.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if name == "version" {
+			out.Version = string(value)
+		} else {
+			out.Metadata[name] = string(value)
+		}
+		return nil
+	}); err != nil {
+		return planRequire{}, err
+	}
+	return out, nil
+}
+
+func detectRequires(requires []DetectRequire) []layer.Require {
 	var out []layer.Require
-	for _, r := range l.Detect.Require {
+	for _, r := range requires {
 		out = append(out, layer.Require{
 			Name:        r.Name,
 			VersionEnv:  r.VersionEnv,
@@ -43,7 +133,12 @@ func detectRequires(l *Layer) []layer.Require {
 	return out
 }
 
-func detectLayer(l *Layer, mux layer.Mux, appDir string) {
+func detectLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir string) {
+	if err := writeMetadata(l, mdDir); err != nil {
+		mux.Done(layer.Result{Err: err})
+		return
+	}
+
 	env := os.Environ()
 	env = append(env, "APP="+appDir)
 
@@ -67,13 +162,13 @@ func detectLayer(l *Layer, mux layer.Mux, appDir string) {
 		return
 	}
 
-	dir, err := ioutil.TempDir("", "packfile."+l.Name)
+	env = append(env, "MD="+mdDir)
+	cmd, c, err := execCmd(&l.Detect.Exec, shell)
 	if err != nil {
 		mux.Done(layer.Result{Err: err})
 		return
 	}
-	env = append(env, "MD="+dir)
-	cmd := exec.Command(l.Detect.Path)
+	defer c.Close()
 	cmd.Dir = appDir
 	cmd.Env = env
 	cmd.Stdout = mux.Out()
@@ -83,24 +178,87 @@ func detectLayer(l *Layer, mux layer.Mux, appDir string) {
 		return
 	}
 
-	mux.Done(layer.Result{Path: dir})
-}
-
-func loadEnv(dir string) error {
-	files, err := ioutil.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	for _, fi := range files {
-		if !fi.IsDir() {
-			v, err := ioutil.ReadFile(filepath.Join(dir, fi.Name()))
-			if err != nil {
-				return err
-			}
-			if err := os.Setenv(fi.Name(), string(v)); err != nil {
-				return err
+	if err := cmd.Run(); err != nil {
+		if err, ok := err.(*exec.ExitError); ok {
+			if status, ok := err.Sys().(syscall.WaitStatus); ok {
+				mux.Done(layer.Result{Err: DetectError(status.ExitStatus())})
+				return
 			}
 		}
+		mux.Done(layer.Result{Err: err})
+		return
 	}
-	return nil
+
+	mux.Done(layer.Result{Path: mdDir})
 }
+
+type DetectError int
+
+func (e DetectError) Error() string {
+	return fmt.Sprintf("detect failed with code %d", e)
+}
+
+func IsFail(err error) bool {
+	if e, ok := err.(DetectError); ok {
+		return e == 100
+	}
+	return false
+}
+
+func IsError(err error) bool {
+	if e, ok := err.(DetectError); ok {
+		return e != 100
+	}
+	return false
+}
+
+// NOTE: implements UNIX exec-style shebang parsing for shell
+func execCmd(e *Exec, shell string) (*exec.Cmd, io.Closer, error) {
+	if e.Inline != "" && e.Path != "" {
+		return nil, nil, xerrors.New("both inline and path specified")
+	}
+	if e.Shell != "" {
+		shell = e.Shell
+	}
+	parts := strings.SplitN(shell, " ", 2)
+	if len(parts) == 0 {
+		return nil, nil, xerrors.New("missing shell")
+	}
+	var args []string
+	if len(parts) > 1 {
+		args = append(args, parts[1])
+	}
+	if e.Inline != "" {
+		f, err := ioutil.TempFile("", "packfile.")
+		if err != nil {
+			return nil, nil, err
+		}
+		if _, err := f.WriteString(e.Inline); err != nil {
+			return nil, nil, err
+		}
+		return exec.Command(shell, append(args, f.Name())...), f, nil
+	}
+
+	if e.Path == "" {
+		return nil, nil, xerrors.New("missing executable")
+	}
+
+	return exec.Command(shell, append(args, e.Path)...), nopCloser{}, nil
+
+}
+
+func writeMetadata(l *Layer, path string) error {
+	for k, v := range l.Metadata {
+		if err := ioutil.WriteFile(filepath.Join(path, k), []byte(v), 0666); err != nil {
+			return err
+		}
+	}
+	if l.Version == "" {
+		return nil
+	}
+	return ioutil.WriteFile(filepath.Join(path, "version"), []byte(l.Version), 0666)
+}
+
+type nopCloser struct{}
+
+func (nopCloser) Close() error { return nil }

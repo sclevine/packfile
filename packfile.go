@@ -28,9 +28,9 @@ type Layer struct {
 	Expose   bool              `toml:"expose"`
 	Version  string            `toml:"version"`
 	Metadata map[string]string `toml:"metadata"`
-	Detect   DetectAction      `toml:"detect"`
-	Build    BuildAction       `toml:"build"`
-	Launch   LaunchAction      `toml:"launch"`
+	Detect   *DetectAction     `toml:"detect"`
+	Build    *BuildAction      `toml:"build"`
+	Launch   *LaunchAction     `toml:"launch"`
 }
 
 type DetectAction struct {

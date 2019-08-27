@@ -1,5 +1,5 @@
 package packfile
 
-func (pf *Packfile) Build(layersDir, platformDir, planPath string) error {
+func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 
 }

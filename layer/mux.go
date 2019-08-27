@@ -31,6 +31,11 @@ type Result struct {
 	Path string
 }
 
+type FinalResult struct {
+	Name string
+	Result
+}
+
 func (m Mux) For(name string, reqs []Require) Mux {
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
@@ -40,8 +45,8 @@ func (m Mux) For(name string, reqs []Require) Mux {
 		reqs:   reqs,
 		wg:     wg,
 		result: &Result{},
-		stdout: NewBufferPipe(),
-		stderr: NewBufferPipe(),
+		stdout: newBufferPipe(),
+		stderr: newBufferPipe(),
 	})
 }
 
@@ -88,13 +93,13 @@ func (m Mux) Wait(fn func(req Require, res Result) error) error {
 	return nil
 }
 
-func (m Mux) WaitAll() { // should return build plan
+func (m Mux) WaitAll() []FinalResult {
+	var out []FinalResult
 	for _, layer := range m {
 		layer.wg.Wait()
+		out = append(out, FinalResult{layer.name, *layer.result})
 	}
-	//for _, item := range c {
-	//	item.result.Path
-	//}
+	return out
 }
 
 func (m Mux) StreamAll(stdout, stderr io.Writer) {
@@ -131,13 +136,13 @@ func (m Mux) Done(result Result) {
 	if len(m) == 0 {
 		return
 	}
-	item := m[len(m)-1]
-	*item.result = result
-	item.wg.Done()
-	item.stdout.Flush()
-	item.stderr.Flush()
-	item.stdout.Close()
-	item.stderr.Close()
+	layer := m[len(m)-1]
+	*layer.result = result
+	layer.wg.Done()
+	layer.stdout.Flush()
+	layer.stderr.Flush()
+	layer.stdout.Close()
+	layer.stderr.Close()
 }
 
 type BufferPipe struct {
@@ -146,7 +151,7 @@ type BufferPipe struct {
 	io.Closer
 }
 
-func NewBufferPipe() *BufferPipe {
+func newBufferPipe() *BufferPipe {
 	r, wc := io.Pipe()
 	return &BufferPipe{
 		Writer: bufio.NewWriter(wc),
