@@ -8,35 +8,33 @@ NPM:
 name = "web"
 command = "npm start"
 
-[[layer]]
+[[layers]]
 name = "nodejs"
 expose = true
-use = true
+image = true
 
-[layer.detect]
+[layers.require]
 inline = """
 jq -r .engines.node package.json > "$MD/version"
 """
 
-[[layer]]
+[[layers]]
 name = "npm-cache"
 cache = true
 
-[[layer]]
+[[layers]]
 name = "modules"
-use = true
+image = true
 
-[layer.detect]
+[layers.require]
+
+[layers.provide.test]
 inline = """
 sha=$(md5sum package-lock.json | cut -d' ' -f1)
-echo "$sha-${NODE_VERSION}" > "$MD/version"
+echo "$sha-$(node -v)" > "$MD/version"
 """
 
-[[layer.detect.require]]
-name = "nodejs"
-version-as = "NODE_VERSION"
-
-[layer.build]
+[layers.provide]
 write-app = true
 inline = """
 cd "$APP"
@@ -45,7 +43,7 @@ mv node_modules “$LAYER/"
 ln -snf “$LAYER/node_modules” node_modules
 """
 
-[[layer.build.require]] # special case: no-build + no-detect = build-only layer, no plan entry
+[[layers.provide.use]] # special case: no-build + no-detect = build-only layer, no plan entry
 name = "npm-cache"
 write = true
 path-as = "NPM_CACHE"
@@ -53,27 +51,28 @@ path-as = "NPM_CACHE"
 
 Node.js:
 ```toml
-[[layer]]
+[[layers]]
 name = "nodejs" 
 cache = true
+
+[layers.provide.test]
+inline = """
+version=$(cat "$MD/version")
+url=https://semver.io/node/resolve/${version:-*}
+echo v$(wget -q -O - "$url") > "$MD/version"
+"""
 
 # downloads are cleaned up after
 # all file vars from detect are present + shortcut for version
 # parameters are available
 # sha is checked if specified
-[[layer.build.deps]]
+[[layers.provide.deps]]
 name = "node"
 version = "{{version}}"
 uri = "https://nodejs.org/dist/{{version}}/node-{{version}}-linux-x64.tar.xz"
 
-
-# VERSION and VERSIONS also accessible
-# get-dep 
-[layer.build]
+[layers.provide]
 inline = """
-version=$(cat "$MD/version")
-url=https://semver.io/node/resolve/${version:-*}
-echo v$(wget -q -O - "$url") > "$MD/version"
 tar -xJf "$(get-dep node)" --strip-components=1
 """
 ```
@@ -85,47 +84,50 @@ tar -xJf "$(get-dep node)" --strip-components=1
 name = "web"
 command = "npm start"
 
-[[layer]]
+[[layers]]
 name = "nodejs"
-use = true
+image = true
 cache = true
 
-[layer.detect]
+[layers.require]
 inline = """
-semver=$(jq -r .engines.node package.json)
-url=https://semver.io/node/resolve/${semver:-*}
+jq -r .engines.node package.json > "$MD/version"
+"""
+
+[layers.provide.test]
+inline = """
+version=$(cat "$MD/version")
+url=https://semver.io/node/resolve/${version:-*}
 echo v$(wget -q -O - "$url") > "$MD/version"
 """
 
-[[layer.build.deps]]
+[[layers.provide.deps]]
 name = "node"
 version = "{{version}}"
 uri = "https://nodejs.org/dist/{{version}}/node-{{version}}-linux-x64.tar.xz"
 
-[layer.build]
+[layers.provide]
 inline = """
 tar -xJf "$(get-dep node)" --strip-components=1
 """
 
-[[layer]]
+[[layers]]
 name = "npm-cache"
 cache = true
 
-[[layer]]
+[[layers]]
 name = "modules"
-use = true
+image = true
 
-[layer.detect]
+[layers.require]
+
+[layers.provide.test]
 inline = """
 sha=$(md5sum package-lock.json | cut -d' ' -f1)
 echo "$sha-${NODE_VERSION}" > "$MD/version"
 """
 
-[[layer.detect.require]]
-name = "nodejs"
-version-as = "NODE_VERSION"
-
-[layer.build]
+[layers.provide]
 write-app = true
 inline = """
 cd "$APP"
@@ -134,10 +136,11 @@ mv node_modules “$LAYER/"
 ln -snf “$LAYER/node_modules” node_modules
 """
 
-[[layer.build.require]]
+[[layers.provide.use]]
 name = "nodejs"
+version-as = "NODE_VERSION"
 
-[[layer.build.require]]
+[[layers.provide.use]]
 name = "npm-cache"
 write = true
 path-as = "NPM_CACHE"

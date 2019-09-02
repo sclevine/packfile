@@ -22,6 +22,7 @@ type layer struct {
 type Require struct {
 	Name        string
 	Write       bool
+	PathEnv     string
 	VersionEnv  string
 	MetadataEnv string
 }

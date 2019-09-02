@@ -2,12 +2,10 @@ package packfile
 
 import (
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/BurntSushi/toml"
@@ -24,7 +22,7 @@ type planProvide struct {
 type planRequire struct {
 	Name     string            `toml:"name"`
 	Version  string            `toml:"version"`
-	Metadata map[string]string `toml:"metadata"`
+	Metadata map[string]string `toml:"metadata"` // TODO: fails to accept all metadata at build
 }
 
 type planSections struct {
@@ -37,7 +35,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	if err != nil {
 		return err
 	}
-	shell := "/usr/bin/env bash"
+	shell := defaultShell
 	if s := pf.Config.Shell; s != "" {
 		shell = s
 	}
@@ -134,7 +132,7 @@ func detectRequires(requires []DetectRequire) []layer.Require {
 }
 
 func detectLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir string) {
-	if err := writeMetadata(l, mdDir); err != nil {
+	if err := writeDetectMetadata(l, mdDir); err != nil {
 		mux.Done(layer.Result{Err: err})
 		return
 	}
@@ -198,56 +196,7 @@ func (e DetectError) Error() string {
 	return fmt.Sprintf("detect failed with code %d", e)
 }
 
-func IsFail(err error) bool {
-	if e, ok := err.(DetectError); ok {
-		return e == 100
-	}
-	return false
-}
-
-func IsError(err error) bool {
-	if e, ok := err.(DetectError); ok {
-		return e != 100
-	}
-	return false
-}
-
-// NOTE: implements UNIX exec-style shebang parsing for shell
-func execCmd(e *Exec, shell string) (*exec.Cmd, io.Closer, error) {
-	if e.Inline != "" && e.Path != "" {
-		return nil, nil, xerrors.New("both inline and path specified")
-	}
-	if e.Shell != "" {
-		shell = e.Shell
-	}
-	parts := strings.SplitN(shell, " ", 2)
-	if len(parts) == 0 {
-		return nil, nil, xerrors.New("missing shell")
-	}
-	var args []string
-	if len(parts) > 1 {
-		args = append(args, parts[1])
-	}
-	if e.Inline != "" {
-		f, err := ioutil.TempFile("", "packfile.")
-		if err != nil {
-			return nil, nil, err
-		}
-		if _, err := f.WriteString(e.Inline); err != nil {
-			return nil, nil, err
-		}
-		return exec.Command(shell, append(args, f.Name())...), f, nil
-	}
-
-	if e.Path == "" {
-		return nil, nil, xerrors.New("missing executable")
-	}
-
-	return exec.Command(shell, append(args, e.Path)...), nopCloser{}, nil
-
-}
-
-func writeMetadata(l *Layer, path string) error {
+func writeDetectMetadata(l *Layer, path string) error {
 	for k, v := range l.Metadata {
 		if err := ioutil.WriteFile(filepath.Join(path, k), []byte(v), 0666); err != nil {
 			return err
@@ -258,7 +207,3 @@ func writeMetadata(l *Layer, path string) error {
 	}
 	return ioutil.WriteFile(filepath.Join(path, "version"), []byte(l.Version), 0666)
 }
-
-type nopCloser struct{}
-
-func (nopCloser) Close() error { return nil }

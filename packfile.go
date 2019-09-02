@@ -1,5 +1,7 @@
 package packfile
 
+const defaultShell = "/usr/bin/env bash"
+
 type Packfile struct {
 	Config    Config    `toml:"config"`
 	Processes []Process `toml:"processes"`

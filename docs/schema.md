@@ -13,60 +13,57 @@ command = "<command value>"
 args = ["command arg"]
 direct = false
 
-[[layer]]
+[[layers]]
+name = "<layer name>"
 cache = false
 expose = false
-use = false
+image = false
 version = "<default version>"
 
-[layer.metadata]
+[layers.metadata]
 # default values
 
+[layers.require]
+shell = "/usr/bin/env bash"
+inline = "<script>"
+path = "<path to script>"
+func = "<go code>"
+
+[[layers.provide.use]]
+name = "<layer name reference>"
+write = false
+path-as = "<env var name for path>"
+version-as = "<env var name for version>"
+metadata-as = "<env var name for metadata path>"
+
+[layers.provide.test]
+shell = "/usr/bin/env bash"
+inline = "<script>"
+path = "<path to script>"
+func = "<go code>"
+
 # all field values below can be templated
-[[layer.build.deps]]
+[[layers.provide.deps]]
 name = "<dep name>"
 version = "<dep version>"
 uri = "<dep uri>"
 
-[layer.build]
+[layers.provide]
 write-app = false
 shell = "/usr/bin/env bash"
 inline = "<script>"
 path = "<path to script>"
 func = "<go code>"
 
-[[layer.build.require]]
-name = "<layer name reference>"
-write = false
-path-as = "<env var name for path>"
-version-as = "<env var name for version>"
-metadata-as = "<env var name for metadata path?>"
-
-[[layer.build.env]]
+[[layers.provide.env]]
 name = "<name>"
 value = "<value>"
 
-[[layer.env]]
-name = "<name>"
-value = "<value>"
-
-[layer.detect]
-shell = "/usr/bin/env bash"
-inline = "<script>"
-path = "<path to script>"
-func = "<go code>"
-
-[[layer.detect.require]]
-name = "<layer name reference>"
-version-as = "<env var name for version>"
-metadata-as = "<env var name for metadata path?>"
-
-[[layer.launch.profile]]
+[[layers.launch.profile]]
 inline = "<script>"
 path = "<path to script>"
 
-[[layer.launch.env]]
+[[layers.launch.env]]
 name = "<name>"
 value = "<value>"
-
 ```
