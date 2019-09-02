@@ -1,5 +1,7 @@
 package packfile
 
+import "github.com/sclevine/packfile/layer"
+
 const defaultShell = "/usr/bin/env bash"
 
 type Packfile struct {
@@ -41,19 +43,11 @@ type Require struct {
 
 type Provide struct {
 	Exec
-	Test     Exec  `toml:"test"`
-	Use      []Use `toml:"use"`
-	Deps     []Dep `toml:"deps"`
-	Env      []Env `toml:"env"`
-	WriteApp bool  `toml:"write-app"`
-}
-
-type Use struct {
-	Name        string `toml:"name"`
-	Write       bool   `toml:"write"`
-	PathEnv     string `toml:"path-as"`
-	VersionEnv  string `toml:"version-as"`
-	MetadataEnv string `toml:"metadata-as"`
+	Test     Exec        `toml:"test"`
+	Use      []layer.Use `toml:"use"`
+	Deps     []Dep       `toml:"deps"`
+	Env      []Env       `toml:"env"`
+	WriteApp bool        `toml:"write-app"`
 }
 
 type Launch struct {

@@ -12,24 +12,25 @@ type Mux []layer
 
 type layer struct {
 	name   string
-	reqs   []Require
+	uses   []Use
 	wg     *sync.WaitGroup
 	result *Result
 	stdout *BufferPipe
 	stderr *BufferPipe
 }
 
-type Require struct {
-	Name        string
-	Write       bool
-	PathEnv     string
-	VersionEnv  string
-	MetadataEnv string
+type Use struct {
+	Name        string `toml:"name"`
+	Write       bool   `toml:"write"`
+	PathEnv     string `toml:"path-as"`
+	VersionEnv  string `toml:"version-as"`
+	MetadataEnv string `toml:"metadata-as"`
 }
 
 type Result struct {
-	Err  error
-	Path string
+	Err          error
+	LayerPath    string
+	MetadataPath string
 }
 
 type FinalResult struct {
@@ -37,13 +38,13 @@ type FinalResult struct {
 	Result
 }
 
-func (m Mux) For(name string, reqs []Require) Mux {
+func (m Mux) For(name string, uses ...Use) Mux {
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
 	return append(m, layer{
 		name:   name,
-		reqs:   reqs,
+		uses:   uses,
 		wg:     wg,
 		result: &Result{},
 		stdout: newBufferPipe(),
@@ -52,8 +53,8 @@ func (m Mux) For(name string, reqs []Require) Mux {
 }
 
 func (l *layer) writes(name string) bool {
-	for _, req := range l.reqs {
-		if req.Name == name && req.Write {
+	for _, use := range l.uses {
+		if use.Name == name && use.Write {
 			return true
 		}
 	}
@@ -72,14 +73,14 @@ func (m Mux) find(name string) int {
 	return -1
 }
 
-func (m Mux) Wait(fn func(req Require, res Result) error) error {
+func (m Mux) Wait(fn func(Use, Result) error) error {
 	if len(m) == 0 {
 		return nil
 	}
-	for _, req := range m[len(m)-1].reqs {
-		i := m.find(req.Name)
+	for _, use := range m[len(m)-1].uses {
+		i := m.find(use.Name)
 		if i < 0 {
-			return xerrors.Errorf("require '%s' not found", req.Name)
+			return xerrors.Errorf("'%s' not found", use.Name)
 		}
 		m[i].wg.Wait()
 		for _, after := range m[i+1 : len(m)-1] {
@@ -87,7 +88,7 @@ func (m Mux) Wait(fn func(req Require, res Result) error) error {
 				after.wg.Wait()
 			}
 		}
-		if err := fn(req, *m[i].result); err != nil {
+		if err := fn(use, *m[i].result); err != nil {
 			return err
 		}
 	}

@@ -10,7 +10,7 @@ env always loaded (clear-env = false)
 
 require gets: APP, MD (wd: APP)
 provide.test gets: APP, MD (wd: APP)
-provide gets: APP, LAYER, MD (wd: LAYER)
+provide gets: APP, LAYER, MD (wd: APP)
 
 each step may override version & metadata
 

@@ -57,13 +57,12 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 				}
 			}
 		}
-		// compare versions, delete layer or skip
 		layerDir := filepath.Join(layersDir, lp.Name)
 		if err := os.MkdirAll(layerDir, 0777); err != nil {
 			return err
 		}
-		mux = mux.For(lp.Name, buildRequires(lp.Provide.Use))
-		go buildLayer(lp, mux, shell, mdDir, appDir, layerDir)
+		mux = mux.For(lp.Name, lp.Provide.Use...)
+		go buildLayer(lp, mux, shell, mdDir, appDir, layerDir, isUsed(lp.Name, pf.Layers[i+1:]))
 	}
 	mux.StreamAll(os.Stdout, os.Stderr)
 	for _, res := range mux.WaitAll() {
@@ -72,7 +71,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		} else if err != nil {
 			return xerrors.Errorf("error for layer '%s': %w", res.Name, err)
 		}
-		req, err := readRequire(res.Name, res.Path)
+		req, err := readRequire(res.Name, res.MetadataPath)
 		if err != nil {
 			return xerrors.Errorf("invalid metadata for layer '%s': %w", res.Name, err)
 		}
@@ -88,18 +87,15 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	return nil
 }
 
-func buildRequires(requires []Use) []layer.Require {
-	var out []layer.Require
-	for _, r := range requires {
-		out = append(out, layer.Require{
-			Name:        r.Name,
-			Write:       r.Write,
-			PathEnv:     r.PathEnv,
-			VersionEnv:  r.VersionEnv,
-			MetadataEnv: r.MetadataEnv,
-		})
+func isUsed(name string, layers []Layer) bool {
+	for _, l := range layers {
+		for _, use := range l.Provide.Use {
+			if use.Name == name {
+				return true
+			}
+		}
 	}
-	return out
+	return false
 }
 
 func writeBuildMetadata(req planRequire, path string) error {
@@ -114,28 +110,26 @@ func writeBuildMetadata(req planRequire, path string) error {
 	return ioutil.WriteFile(filepath.Join(path, "version"), []byte(req.Version), 0666)
 }
 
-func buildLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir, layerDir string) {
-	if err := writeDetectMetadata(l, mdDir); err != nil {
-		mux.Done(layer.Result{Err: err})
-		return
-	}
-
+func buildLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir, layerDir string, used bool) {
 	env := os.Environ()
 	env = append(env, "APP="+appDir)
 
-	if err := mux.Wait(func(req layer.Require, res layer.Result) error {
+	if err := mux.Wait(func(use layer.Use, res layer.Result) error {
 		if res.Err != nil {
-			return xerrors.Errorf("require '%s' failed: %w", req.Name, res.Err)
+			return xerrors.Errorf("failed to use '%s': %w", use.Name, res.Err)
 		}
-		if req.VersionEnv != "" {
-			if version, err := ioutil.ReadFile(filepath.Join(res.Path, "version")); err == nil {
-				env = append(env, req.VersionEnv+"="+string(version))
+		if use.PathEnv != "" {
+			env = append(env, use.PathEnv+"="+res.LayerPath)
+		}
+		if use.VersionEnv != "" {
+			if version, err := ioutil.ReadFile(filepath.Join(res.MetadataPath, "version")); err == nil {
+				env = append(env, use.VersionEnv+"="+string(version))
 			} else if !os.IsNotExist(err) {
 				return err
 			}
 		}
-		if req.MetadataEnv != "" {
-			env = append(env, req.MetadataEnv+"="+res.Path)
+		if use.MetadataEnv != "" {
+			env = append(env, use.MetadataEnv+"="+res.MetadataPath)
 		}
 		return nil
 	}); err != nil {
@@ -144,7 +138,7 @@ func buildLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir, layerDir string) 
 	}
 
 	env = append(env, "MD="+mdDir)
-	cmd, c, err := execCmd(&l.Require.Exec, shell)
+	cmd, c, err := execCmd(&l.Provide.Test, shell)
 	if err != nil {
 		mux.Done(layer.Result{Err: err})
 		return
@@ -170,5 +164,7 @@ func buildLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir, layerDir string) 
 		return
 	}
 
-	mux.Done(layer.Result{Path: mdDir})
+	// compare versions, delete layer or skip
+
+	mux.Done(layer.Result{LayerPath: layerDir, MetadataPath: mdDir})
 }

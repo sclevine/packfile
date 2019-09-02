@@ -55,7 +55,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 			return err
 		}
 		defer os.RemoveAll(mdDir)
-		mux = mux.For(lp.Name, detectRequires(lp.Require.Require))
+		mux = mux.For(lp.Name)
 		go detectLayer(lp, mux, shell, mdDir, appDir)
 	}
 	mux.StreamAll(os.Stdout, os.Stderr)
@@ -65,7 +65,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 		} else if err != nil {
 			return xerrors.Errorf("error for layer '%s': %w", res.Name, err)
 		}
-		req, err := readRequire(res.Name, res.Path)
+		req, err := readRequire(res.Name, res.MetadataPath)
 		if err != nil {
 			return xerrors.Errorf("invalid metadata for layer '%s': %w", res.Name, err)
 		}
@@ -119,18 +119,6 @@ func readRequire(name, path string) (planRequire, error) {
 	return out, nil
 }
 
-func detectRequires(requires []DetectRequire) []layer.Require {
-	var out []layer.Require
-	for _, r := range requires {
-		out = append(out, layer.Require{
-			Name:        r.Name,
-			VersionEnv:  r.VersionEnv,
-			MetadataEnv: r.MetadataEnv,
-		})
-	}
-	return out
-}
-
 func detectLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir string) {
 	if err := writeDetectMetadata(l, mdDir); err != nil {
 		mux.Done(layer.Result{Err: err})
@@ -138,29 +126,7 @@ func detectLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir string) {
 	}
 
 	env := os.Environ()
-	env = append(env, "APP="+appDir)
-
-	if err := mux.Wait(func(req layer.Require, res layer.Result) error {
-		if res.Err != nil {
-			return xerrors.Errorf("require '%s' failed: %w", req.Name, res.Err)
-		}
-		if req.VersionEnv != "" {
-			if version, err := ioutil.ReadFile(filepath.Join(res.Path, "version")); err == nil {
-				env = append(env, req.VersionEnv+"="+string(version))
-			} else if !os.IsNotExist(err) {
-				return err
-			}
-		}
-		if req.MetadataEnv != "" {
-			env = append(env, req.MetadataEnv+"="+res.Path)
-		}
-		return nil
-	}); err != nil {
-		mux.Done(layer.Result{Err: err})
-		return
-	}
-
-	env = append(env, "MD="+mdDir)
+	env = append(env, "APP="+appDir, "MD="+mdDir)
 	cmd, c, err := execCmd(&l.Require.Exec, shell)
 	if err != nil {
 		mux.Done(layer.Result{Err: err})
@@ -187,7 +153,7 @@ func detectLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir string) {
 		return
 	}
 
-	mux.Done(layer.Result{Path: mdDir})
+	mux.Done(layer.Result{MetadataPath: mdDir})
 }
 
 type DetectError int

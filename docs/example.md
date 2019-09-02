@@ -37,7 +37,6 @@ echo "$sha-$(node -v)" > "$MD/version"
 [layers.provide]
 write-app = true
 inline = """
-cd "$APP"
 npm ci --unsafe-perm --cache "$NPM_CACHE"
 mv node_modules “$LAYER/"
 ln -snf “$LAYER/node_modules” node_modules
@@ -73,7 +72,7 @@ uri = "https://nodejs.org/dist/{{version}}/node-{{version}}-linux-x64.tar.xz"
 
 [layers.provide]
 inline = """
-tar -xJf "$(get-dep node)" --strip-components=1
+tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 """
 ```
 
@@ -108,7 +107,7 @@ uri = "https://nodejs.org/dist/{{version}}/node-{{version}}-linux-x64.tar.xz"
 
 [layers.provide]
 inline = """
-tar -xJf "$(get-dep node)" --strip-components=1
+tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 """
 
 [[layers]]
@@ -130,7 +129,6 @@ echo "$sha-${NODE_VERSION}" > "$MD/version"
 [layers.provide]
 write-app = true
 inline = """
-cd "$APP"
 npm ci --unsafe-perm --cache "$NPM_CACHE"
 mv node_modules “$LAYER/"
 ln -snf “$LAYER/node_modules” node_modules
