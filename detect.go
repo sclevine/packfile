@@ -44,10 +44,10 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	var mux layer.Mux
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
-		if lp.Build != nil {
+		if lp.Provide != nil {
 			provides = append(provides, planProvide{Name: lp.Name})
 		}
-		if lp.Detect == nil {
+		if lp.Require == nil {
 			continue
 		}
 		mdDir, err := ioutil.TempDir("", "packfile."+lp.Name)
@@ -55,7 +55,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 			return err
 		}
 		defer os.RemoveAll(mdDir)
-		mux = mux.For(lp.Name, detectRequires(lp.Detect.Require))
+		mux = mux.For(lp.Name, detectRequires(lp.Require.Require))
 		go detectLayer(lp, mux, shell, mdDir, appDir)
 	}
 	mux.StreamAll(os.Stdout, os.Stderr)
@@ -161,7 +161,7 @@ func detectLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir string) {
 	}
 
 	env = append(env, "MD="+mdDir)
-	cmd, c, err := execCmd(&l.Detect.Exec, shell)
+	cmd, c, err := execCmd(&l.Require.Exec, shell)
 	if err != nil {
 		mux.Done(layer.Result{Err: err})
 		return

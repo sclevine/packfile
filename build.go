@@ -42,7 +42,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	var mux layer.Mux
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
-		if lp.Build == nil && lp.Detect != nil {
+		if lp.Provide == nil && lp.Require != nil {
 			continue
 		}
 		mdDir, err := ioutil.TempDir("", "packfile."+lp.Name)
@@ -50,7 +50,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 			return err
 		}
 		defer os.RemoveAll(mdDir)
-		if lp.Build != nil {
+		if lp.Provide != nil {
 			for _, req := range plan.get(lp.Name) {
 				if err := writeBuildMetadata(req, mdDir); err != nil {
 					return err
@@ -62,7 +62,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		if err := os.MkdirAll(layerDir, 0777); err != nil {
 			return err
 		}
-		mux = mux.For(lp.Name, buildRequires(lp.Build.Require))
+		mux = mux.For(lp.Name, buildRequires(lp.Provide.Use))
 		go buildLayer(lp, mux, shell, mdDir, appDir, layerDir)
 	}
 	mux.StreamAll(os.Stdout, os.Stderr)
@@ -88,7 +88,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	return nil
 }
 
-func buildRequires(requires []BuildRequire) []layer.Require {
+func buildRequires(requires []Use) []layer.Require {
 	var out []layer.Require
 	for _, r := range requires {
 		out = append(out, layer.Require{
@@ -144,7 +144,7 @@ func buildLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir, layerDir string) 
 	}
 
 	env = append(env, "MD="+mdDir)
-	cmd, c, err := execCmd(&l.Detect.Exec, shell)
+	cmd, c, err := execCmd(&l.Require.Exec, shell)
 	if err != nil {
 		mux.Done(layer.Result{Err: err})
 		return
