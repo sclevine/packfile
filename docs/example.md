@@ -1,8 +1,7 @@
 
 ### Separate
 
-NPM:
-
+#### NPM
 ```toml
 [[processes]]
 name = "web"
@@ -18,6 +17,7 @@ inline = """
 jq -r .engines.node package.json > "$MD/version"
 """
 
+# special case: no-provide + no-require = empty dir w/ no plan entry
 [[layers]]
 name = "npm-cache"
 cache = true
@@ -26,15 +26,13 @@ cache = true
 name = "modules"
 image = true
 
-[layers.require]
-
-[layers.provide.test]
+[layers.build.test]
 inline = """
 sha=$(md5sum package-lock.json | cut -d' ' -f1)
 echo "$sha-$(node -v)" > "$MD/version"
 """
 
-[layers.provide]
+[layers.build]
 write-app = true
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
@@ -42,13 +40,13 @@ mv node_modules “$LAYER/"
 ln -snf “$LAYER/node_modules” node_modules
 """
 
-[[layers.provide.use]] # special case: no-build + no-detect = build-only layer, no plan entry
+[[layers.build.use]]
 name = "npm-cache"
 write = true
 path-as = "NPM_CACHE"
 ```
 
-Node.js:
+#### Node
 ```toml
 [[layers]]
 name = "nodejs" 
@@ -78,6 +76,7 @@ tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 
 ### Combined
 
+#### Node.js
 ```toml
 [[processes]]
 name = "web"
@@ -85,7 +84,7 @@ command = "npm start"
 
 [[layers]]
 name = "nodejs"
-image = true
+export = true
 cache = true
 
 [layers.require]
@@ -116,17 +115,15 @@ cache = true
 
 [[layers]]
 name = "modules"
-image = true
+export = true
 
-[layers.require]
-
-[layers.provide.test]
+[layers.build.test]
 inline = """
 sha=$(md5sum package-lock.json | cut -d' ' -f1)
 echo "$sha-${NODE_VERSION}" > "$MD/version"
 """
 
-[layers.provide]
+[layers.build]
 write-app = true
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
@@ -134,12 +131,31 @@ mv node_modules “$LAYER/"
 ln -snf “$LAYER/node_modules” node_modules
 """
 
-[[layers.provide.use]]
+[[layers.build.use]]
 name = "nodejs"
 version-as = "NODE_VERSION"
 
-[[layers.provide.use]]
+[[layers.build.use]]
 name = "npm-cache"
 write = true
 path-as = "NPM_CACHE"
 ```
+
+#### Simple TCP Server
+```toml
+[[processes]]
+name = "web"
+command = "run"
+
+[[layers]]
+name = "server"
+export = true
+
+[layers.build]
+inline = """
+mkdir bin
+echo 'while true; do cat index.tcp | nc -l 8080; done' > bin/run
+chmod +x bin/run
+"""
+```
+

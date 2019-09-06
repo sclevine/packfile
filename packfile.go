@@ -27,13 +27,14 @@ type Process struct {
 
 type Layer struct {
 	Name     string            `toml:"name"`
-	Image    bool              `toml:"image"`
-	Cache    bool              `toml:"cache"`
+	Export   bool              `toml:"export"`
 	Expose   bool              `toml:"expose"`
+	Cache    bool              `toml:"cache"`
 	Version  string            `toml:"version"`
 	Metadata map[string]string `toml:"metadata"`
 	Require  *Require          `toml:"require"`
 	Provide  *Provide          `toml:"provide"`
+	Build    *Provide          `toml:"build"`
 	Launch   *Launch           `toml:"launch"`
 }
 

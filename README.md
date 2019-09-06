@@ -1,7 +1,9 @@
 # packfile
 
 Reproducible, unprivileged OCI image builds in TOML.
+
 Parallel, offline, and metadata-rich.
+
 Built on top of Cloud Native Buildpacks.
 
 ## Random Notes
@@ -11,6 +13,8 @@ env always loaded (clear-env = false)
 require gets: APP, MD (wd: APP)
 provide.test gets: APP, MD (wd: APP)
 provide gets: APP, LAYER, MD (wd: APP)
+
+build is the same as provide but implies require
 
 each step may override version & metadata
 

@@ -17,7 +17,7 @@ direct = false
 name = "<layer name>"
 cache = false
 expose = false
-image = false
+export = false
 version = "<default version>"
 
 [layers.metadata]
@@ -42,7 +42,7 @@ inline = "<script>"
 path = "<path to script>"
 func = "<go code>"
 
-# all field values below can be templated
+# all deps fields can be go-templated
 [[layers.provide.deps]]
 name = "<dep name>"
 version = "<dep version>"
@@ -58,6 +58,9 @@ func = "<go code>"
 [[layers.provide.env]]
 name = "<name>"
 value = "<value>"
+
+[[layers.build]]
+# same as [[layers.provide]]
 
 [[layers.launch.profile]]
 inline = "<script>"
