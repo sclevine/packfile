@@ -10,7 +10,7 @@ command = "npm start"
 [[layers]]
 name = "nodejs"
 expose = true
-image = true
+export = true
 
 [layers.require]
 inline = """
@@ -20,11 +20,11 @@ jq -r .engines.node package.json > "$MD/version"
 # special case: no-provide + no-require = empty dir w/ no plan entry
 [[layers]]
 name = "npm-cache"
-cache = true
+recover = true
 
 [[layers]]
 name = "modules"
-image = true
+export = true
 
 [layers.build.test]
 inline = """
@@ -37,12 +37,13 @@ write-app = true
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
 mv node_modules “$LAYER/"
-ln -snf “$LAYER/node_modules” node_modules
+mkdir "$LAYER/env"
+echo "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
 """
 
-[[layers.build.use]]
+[[layers.build.links]]
 name = "npm-cache"
-write = true
+cache = true
 path-as = "NPM_CACHE"
 ```
 
@@ -50,7 +51,7 @@ path-as = "NPM_CACHE"
 ```toml
 [[layers]]
 name = "nodejs" 
-cache = true
+recover = true
 
 [layers.provide.test]
 inline = """
@@ -85,7 +86,7 @@ command = "npm start"
 [[layers]]
 name = "nodejs"
 export = true
-cache = true
+recover = true
 
 [layers.require]
 inline = """
@@ -111,7 +112,7 @@ tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 
 [[layers]]
 name = "npm-cache"
-cache = true
+recover = true
 
 [[layers]]
 name = "modules"
@@ -128,16 +129,17 @@ write-app = true
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
 mv node_modules “$LAYER/"
-ln -snf “$LAYER/node_modules” node_modules
+mkdir "$LAYER/env"
+echo "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
 """
 
-[[layers.build.use]]
+[[layers.build.links]]
 name = "nodejs"
 version-as = "NODE_VERSION"
 
-[[layers.build.use]]
+[[layers.build.links]]
 name = "npm-cache"
-write = true
+cache = true
 path-as = "NPM_CACHE"
 ```
 

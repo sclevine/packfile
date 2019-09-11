@@ -44,10 +44,10 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	var mux layer.Mux
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
-		if lp.Provide != nil {
+		if lp.Provide != nil || lp.Build != nil {
 			provides = append(provides, planProvide{Name: lp.Name})
 		}
-		if lp.Require == nil {
+		if lp.Require == nil && lp.Build == nil {
 			continue
 		}
 		mdDir, err := ioutil.TempDir("", "packfile."+lp.Name)
@@ -119,15 +119,18 @@ func readRequire(name, path string) (planRequire, error) {
 	return out, nil
 }
 
-func detectLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir string) {
-	if err := writeDetectMetadata(l, mdDir); err != nil {
+func detectLayer(lp *Layer, mux layer.Mux, shell, mdDir, appDir string) {
+	if err := writeMetadata(mdDir, lp.Version, lp.Metadata); err != nil {
 		mux.Done(layer.Result{Err: err})
 		return
+	}
+	if lp.Require == nil {
+		mux.Done(layer.Result{MetadataPath: mdDir})
 	}
 
 	env := os.Environ()
 	env = append(env, "APP="+appDir, "MD="+mdDir)
-	cmd, c, err := execCmd(&l.Require.Exec, shell)
+	cmd, c, err := execCmd(&lp.Require.Exec, shell)
 	if err != nil {
 		mux.Done(layer.Result{Err: err})
 		return
@@ -160,16 +163,4 @@ type DetectError int
 
 func (e DetectError) Error() string {
 	return fmt.Sprintf("detect failed with code %d", e)
-}
-
-func writeDetectMetadata(l *Layer, path string) error {
-	for k, v := range l.Metadata {
-		if err := ioutil.WriteFile(filepath.Join(path, k), []byte(v), 0666); err != nil {
-			return err
-		}
-	}
-	if l.Version == "" {
-		return nil
-	}
-	return ioutil.WriteFile(filepath.Join(path, "version"), []byte(l.Version), 0666)
 }

@@ -15,9 +15,9 @@ direct = false
 
 [[layers]]
 name = "<layer name>"
-cache = false
 expose = false
 export = false
+recover = false
 version = "<default version>"
 
 [layers.metadata]
@@ -29,9 +29,10 @@ inline = "<script>"
 path = "<path to script>"
 func = "<go code>"
 
-[[layers.provide.use]]
+[[layers.provide.links]]
 name = "<layer name reference>"
 write = false
+cache = false
 path-as = "<env var name for path>"
 version-as = "<env var name for version>"
 metadata-as = "<env var name for metadata path>"

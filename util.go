@@ -4,6 +4,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -21,6 +22,18 @@ func IsError(err error) bool {
 		return e != 100
 	}
 	return false
+}
+
+func writeMetadata(path, version string, metadata map[string]string) error {
+	for k, v := range metadata {
+		if err := ioutil.WriteFile(filepath.Join(path, k), []byte(v), 0666); err != nil {
+			return err
+		}
+	}
+	if version == "" {
+		return nil
+	}
+	return ioutil.WriteFile(filepath.Join(path, "version"), []byte(version), 0666)
 }
 
 // NOTE: implements UNIX exec-style shebang parsing for shell

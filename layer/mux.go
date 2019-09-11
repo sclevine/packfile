@@ -12,16 +12,17 @@ type Mux []layer
 
 type layer struct {
 	name   string
-	uses   []Use
+	links  []Link
 	wg     *sync.WaitGroup
 	result *Result
 	stdout *BufferPipe
 	stderr *BufferPipe
 }
 
-type Use struct {
+type Link struct {
 	Name        string `toml:"name"`
 	Write       bool   `toml:"write"`
+	Cache       bool   `toml:"cache"`
 	PathEnv     string `toml:"path-as"`
 	VersionEnv  string `toml:"version-as"`
 	MetadataEnv string `toml:"metadata-as"`
@@ -38,13 +39,13 @@ type FinalResult struct {
 	Result
 }
 
-func (m Mux) For(name string, uses ...Use) Mux {
+func (m Mux) For(name string, links ...Link) Mux {
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
 	return append(m, layer{
 		name:   name,
-		uses:   uses,
+		links:  links,
 		wg:     wg,
 		result: &Result{},
 		stdout: newBufferPipe(),
@@ -53,8 +54,8 @@ func (m Mux) For(name string, uses ...Use) Mux {
 }
 
 func (l *layer) writes(name string) bool {
-	for _, use := range l.uses {
-		if use.Name == name && use.Write {
+	for _, link := range l.links {
+		if link.Name == name && link.Write {
 			return true
 		}
 	}
@@ -73,14 +74,14 @@ func (m Mux) find(name string) int {
 	return -1
 }
 
-func (m Mux) Wait(fn func(Use, Result) error) error {
+func (m Mux) Wait(fn func(Link, Result) error) error {
 	if len(m) == 0 {
 		return nil
 	}
-	for _, use := range m[len(m)-1].uses {
-		i := m.find(use.Name)
+	for _, link := range m[len(m)-1].links {
+		i := m.find(link.Name)
 		if i < 0 {
-			return xerrors.Errorf("'%s' not found", use.Name)
+			return xerrors.Errorf("'%s' not found", link.Name)
 		}
 		m[i].wg.Wait()
 		for _, after := range m[i+1 : len(m)-1] {
@@ -88,7 +89,7 @@ func (m Mux) Wait(fn func(Use, Result) error) error {
 				after.wg.Wait()
 			}
 		}
-		if err := fn(use, *m[i].result); err != nil {
+		if err := fn(link, *m[i].result); err != nil {
 			return err
 		}
 	}

@@ -29,7 +29,7 @@ type Layer struct {
 	Name     string            `toml:"name"`
 	Export   bool              `toml:"export"`
 	Expose   bool              `toml:"expose"`
-	Cache    bool              `toml:"cache"`
+	Recover  bool              `toml:"recover"`
 	Version  string            `toml:"version"`
 	Metadata map[string]string `toml:"metadata"`
 	Require  *Require          `toml:"require"`
@@ -44,11 +44,11 @@ type Require struct {
 
 type Provide struct {
 	Exec
-	Test     Exec        `toml:"test"`
-	Use      []layer.Use `toml:"use"`
-	Deps     []Dep       `toml:"deps"`
-	Env      []Env       `toml:"env"`
-	WriteApp bool        `toml:"write-app"`
+	Test     Exec         `toml:"test"`
+	Links    []layer.Link `toml:"links"`
+	Deps     []Dep        `toml:"deps"`
+	Env      []Env        `toml:"env"`
+	WriteApp bool         `toml:"write-app"`
 }
 
 type Launch struct {

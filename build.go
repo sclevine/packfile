@@ -8,8 +8,9 @@ import (
 	"syscall"
 
 	"github.com/BurntSushi/toml"
-	"github.com/sclevine/packfile/layer"
 	"golang.org/x/xerrors"
+
+	"github.com/sclevine/packfile/layer"
 )
 
 type buildPlan struct {
@@ -50,19 +51,12 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 			return err
 		}
 		defer os.RemoveAll(mdDir)
-		if lp.Provide != nil {
-			for _, req := range plan.get(lp.Name) {
-				if err := writeBuildMetadata(req, mdDir); err != nil {
-					return err
-				}
-			}
-		}
 		layerDir := filepath.Join(layersDir, lp.Name)
 		if err := os.MkdirAll(layerDir, 0777); err != nil {
 			return err
 		}
-		mux = mux.For(lp.Name, lp.Provide.Use...)
-		go buildLayer(lp, mux, shell, mdDir, appDir, layerDir, isUsed(lp.Name, pf.Layers[i+1:]))
+		mux = mux.For(lp.Name, lp.Provide.Links...)
+		go buildLayer(lp, mux, plan.get(lp.Name), shell, mdDir, appDir, layerDir, isUsed(lp.Name, pf.Layers[i+1:]))
 	}
 	mux.StreamAll(os.Stdout, os.Stderr)
 	for _, res := range mux.WaitAll() {
@@ -89,8 +83,8 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 
 func isUsed(name string, layers []Layer) bool {
 	for _, l := range layers {
-		for _, use := range l.Provide.Use {
-			if use.Name == name {
+		for _, link := range l.Provide.Links {
+			if link.Name == name {
 				return true
 			}
 		}
@@ -98,38 +92,41 @@ func isUsed(name string, layers []Layer) bool {
 	return false
 }
 
-func writeBuildMetadata(req planRequire, path string) error {
-	for k, v := range req.Metadata {
-		if err := ioutil.WriteFile(filepath.Join(path, k), []byte(v), 0666); err != nil {
-			return err
+func buildLayer(lp *Layer, mux layer.Mux, requires []planRequire, shell, mdDir, appDir, layerDir string, used bool) {
+	if lp.Provide != nil {
+		if lp.Require == nil {
+			if err := writeMetadata(mdDir, lp.Version, lp.Metadata); err != nil {
+				mux.Done(layer.Result{Err: err})
+				return
+			}
+		}
+		for _, req := range requires {
+			if err := writeMetadata(mdDir, req.Version, req.Metadata); err != nil {
+				mux.Done(layer.Result{Err: err})
+				return
+			}
 		}
 	}
-	if req.Version == "" {
-		return nil
-	}
-	return ioutil.WriteFile(filepath.Join(path, "version"), []byte(req.Version), 0666)
-}
 
-func buildLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir, layerDir string, used bool) {
 	env := os.Environ()
 	env = append(env, "APP="+appDir)
 
-	if err := mux.Wait(func(use layer.Use, res layer.Result) error {
+	if err := mux.Wait(func(link layer.Link, res layer.Result) error {
 		if res.Err != nil {
-			return xerrors.Errorf("failed to use '%s': %w", use.Name, res.Err)
+			return xerrors.Errorf("failed to link '%s': %w", link.Name, res.Err)
 		}
-		if use.PathEnv != "" {
-			env = append(env, use.PathEnv+"="+res.LayerPath)
+		if link.PathEnv != "" {
+			env = append(env, link.PathEnv+"="+res.LayerPath)
 		}
-		if use.VersionEnv != "" {
+		if link.VersionEnv != "" {
 			if version, err := ioutil.ReadFile(filepath.Join(res.MetadataPath, "version")); err == nil {
-				env = append(env, use.VersionEnv+"="+string(version))
+				env = append(env, link.VersionEnv+"="+string(version))
 			} else if !os.IsNotExist(err) {
 				return err
 			}
 		}
-		if use.MetadataEnv != "" {
-			env = append(env, use.MetadataEnv+"="+res.MetadataPath)
+		if link.MetadataEnv != "" {
+			env = append(env, link.MetadataEnv+"="+res.MetadataPath)
 		}
 		return nil
 	}); err != nil {
@@ -138,7 +135,7 @@ func buildLayer(l *Layer, mux layer.Mux, shell, mdDir, appDir, layerDir string, 
 	}
 
 	env = append(env, "MD="+mdDir)
-	cmd, c, err := execCmd(&l.Provide.Test, shell)
+	cmd, c, err := execCmd(&lp.Provide.Test, shell)
 	if err != nil {
 		mux.Done(layer.Result{Err: err})
 		return
