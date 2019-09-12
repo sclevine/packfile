@@ -22,7 +22,6 @@ type layer struct {
 type Link struct {
 	Name        string `toml:"name"`
 	Write       bool   `toml:"write"`
-	Cache       bool   `toml:"cache"`
 	PathEnv     string `toml:"path-as"`
 	VersionEnv  string `toml:"version-as"`
 	MetadataEnv string `toml:"metadata-as"`
@@ -30,6 +29,7 @@ type Link struct {
 
 type Result struct {
 	Err          error
+
 	LayerPath    string
 	MetadataPath string
 }

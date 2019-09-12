@@ -20,7 +20,7 @@ jq -r .engines.node package.json > "$MD/version"
 # special case: no-provide + no-require = empty dir w/ no plan entry
 [[layers]]
 name = "npm-cache"
-recover = true
+cache = true
 
 [[layers]]
 name = "modules"
@@ -43,7 +43,7 @@ echo "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
 
 [[layers.build.links]]
 name = "npm-cache"
-cache = true
+write = true
 path-as = "NPM_CACHE"
 ```
 
@@ -86,7 +86,7 @@ command = "npm start"
 [[layers]]
 name = "nodejs"
 export = true
-recover = true
+store = true
 
 [layers.require]
 inline = """
@@ -112,7 +112,7 @@ tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 
 [[layers]]
 name = "npm-cache"
-recover = true
+cache = true
 
 [[layers]]
 name = "modules"
@@ -139,7 +139,7 @@ version-as = "NODE_VERSION"
 
 [[layers.build.links]]
 name = "npm-cache"
-cache = true
+write = true
 path-as = "NPM_CACHE"
 ```
 

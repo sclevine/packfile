@@ -17,7 +17,8 @@ direct = false
 name = "<layer name>"
 expose = false
 export = false
-recover = false
+cache = false
+store = false
 version = "<default version>"
 
 [layers.metadata]
@@ -32,7 +33,6 @@ func = "<go code>"
 [[layers.provide.links]]
 name = "<layer name reference>"
 write = false
-cache = false
 path-as = "<env var name for path>"
 version-as = "<env var name for version>"
 metadata-as = "<env var name for metadata path>"

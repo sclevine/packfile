@@ -29,7 +29,8 @@ type Layer struct {
 	Name     string            `toml:"name"`
 	Export   bool              `toml:"export"`
 	Expose   bool              `toml:"expose"`
-	Recover  bool              `toml:"recover"`
+	Store    bool              `toml:"store"`
+	Cache    bool              `toml:"cache"`
 	Version  string            `toml:"version"`
 	Metadata map[string]string `toml:"metadata"`
 	Require  *Require          `toml:"require"`
