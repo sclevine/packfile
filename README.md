@@ -4,7 +4,7 @@ Reproducible, unprivileged OCI image builds in TOML.
 
 Parallel, offline, and metadata-rich.
 
-Built on top of Cloud Native Buildpacks.
+Built on top of [Cloud Native Buildpacks](https://buildpacks.io).
 
 ## Random Notes
 
@@ -14,8 +14,8 @@ Built on top of Cloud Native Buildpacks.
 env always loaded (clear-env = false)
 
 - require gets: APP (ro), MD (rw) (wd: APP)
-- provide.test gets: APP (rw), MD (rw) (wd: APP) | MD_AS (ro), PATH_AS (ro)
-- provide gets: APP (rw), LAYER (rw), MD (rw) (wd: APP) | MD_AS (ro/rw), PATH_AS (ro/rw)
+- provide.test gets: APP (rw), MD (rw) (wd: APP) | Link: MD_AS (ro), PATH_AS (ro) | Cache: PATH_AS (rw)
+- provide gets: APP (rw), LAYER (rw), MD (rw) (wd: APP) | Link: MD_AS (ro), PATH_AS (ro) | Cache: PATH_AS (rw)
 
 - provide-only: provide in build plan
 - require-only: require in build plan
@@ -50,24 +50,22 @@ any layer with a provide can be referenced with "link"
 
 a layer with no provide or require can be referenced with "link"
 
-provide.test can be used to create inter-dependent layer rebuilding
+provide.test can be used to create custom inter-dependent layer rebuilding
+
+provide.test is never skipped
 
 write-app layers are always re-built and run serially
 
+PROBLEM: some layers need other layers during provide.test, but it forces unnecessary rebuilds in export chains
+SOLUTION: flag to add layer path to provide.test
+
+metadata changes during provide are only accessible in BOM, not in linked layers (unless for-test?)
+
 - export + store = always comes back, rebuilds w/o cache on version mismatch, link does not change behavior
-- export + cache = always comes back, rebuilds w/ cache on version mismatch, link does not change behavior
-- export + no-cache = never comes back, is not created if version matches, link forces creation
+- export = never comes back, is not created if version matches, link can force creation
 - expose + store =  always comes back, rebuilds w/o cache on version mismatch, link does not change behavior
-- expose + cache =  always comes back, rebuilds w/ cache on version mismatch, link does not change behavior
-- expose + no-cache = never comes back, always rebuilt, link does not change behavior
+- expose = never comes back, always rebuilt, link does not change behavior
 - export + expose + store = always comes back, rebuilds w/o cache on version mismatch, link does not change behavior
-- export + expose + cache = always comes back, rebuilds w/ cache on version mismatch, link does not change behavior
-- export + expose + no-cache = never comes back, always rebuilt, link does not change behavior
+- export + expose = never comes back, always rebuilt, link does not change behavior
 
-- when writing to a non-cache layer via a link, provide always re-runs if the linked layer was re-generated
-- when writing to a cache layer via a link, provide may not re-run, even if the linked layer was re-generated
-
-- the version from provide is always matched against the version from provide.test
-- if other layers override the version, the new value is just used for the BOM
-
-PROBLEM: double-write: if linked+write layer is restored, and current layer re-builds -> double writes
+- the version from provide.test is always matched against the version from provide.test

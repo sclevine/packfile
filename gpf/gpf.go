@@ -1,8 +1,8 @@
-package packfile
+package gpf
 
 import "github.com/sclevine/packfile/layer"
 
-const defaultShell = "/usr/bin/env bash"
+type BP struct{}
 
 type Packfile struct {
 	Config    Config    `toml:"config"`
@@ -15,7 +15,6 @@ type Config struct {
 	ID      string `toml:"id"`
 	Version string `toml:"version"`
 	Name    string `toml:"name"`
-	Shell   string `toml:"shell"`
 	Serial  bool   `toml:"serial"`
 }
 
@@ -26,26 +25,31 @@ type Process struct {
 	Direct  bool     `toml:"direct"`
 }
 
-type Cache struct {
-	Name  string `toml:"name"`
-	Setup *Exec  `toml:"setup"`
+//func (bp *BP) Cache(name string, setup func() error) {
+//
+//}
+
+type Cache interface {
+	Name() string
+	Setup() error
 }
 
-type Layer struct {
-	Name     string            `toml:"name"`
-	Export   bool              `toml:"export"`
-	Expose   bool              `toml:"expose"`
-	Store    bool              `toml:"store"`
-	Version  string            `toml:"version"`
-	Metadata map[string]string `toml:"metadata"`
-	Require  *Require          `toml:"require"`
-	Provide  *Provide          `toml:"provide"`
-	Build    *Provide          `toml:"build"`
+type Layer interface {
+	Name() string
+	Config() *LayerConfig
+	Require() error
+	Provide() error
+	Build() error
 }
 
-type Require struct {
-	Exec
+type LayerConfig struct {
+	Export   bool
+	Expose   bool
+	Store    bool
+	Version  string
+	Metadata map[string]string
 }
+
 
 type Provide struct {
 	Exec
@@ -60,12 +64,6 @@ type Provide struct {
 type Envs struct {
 	Build  []Env `toml:"build"`
 	Launch []Env `toml:"launch"`
-}
-
-type Exec struct {
-	Shell  string `toml:"shell"`
-	Inline string `toml:"inline"`
-	Path   string `toml:"path"`
 }
 
 type Env struct {

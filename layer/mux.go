@@ -11,25 +11,68 @@ import (
 type Mux []layer
 
 type layer struct {
-	name   string
-	links  []Link
-	wg     *sync.WaitGroup
-	result *Result
-	stdout *BufferPipe
-	stderr *BufferPipe
+	name     string
+	links    []Link
+	runExec  *layerExec
+	testExec *layerExec
+	stdout   *BufferPipe
+	stderr   *BufferPipe
+}
+
+func (l *layer) skip(err error) {
+	l.testExec.skip(err)
+	l.runExec.skip(err)
+}
+
+var ErrNotNeeded = xerrors.New("not needed")
+var ErrExists = xerrors.New("exists")
+
+func (l *layer) run(prev, next []layer) {
+	defer func() {
+		l.stdout.Flush()
+		l.stderr.Flush()
+		l.stdout.Close()
+		l.stderr.Close()
+	}()
+
+	// PROBLEM: test can't read linked test metadata unless ForTest applies to whole link (but that might cause deadlock?)
+	var afterTest []*layerExec
+	for _, link := range l.links {
+		i := find(link.Name, prev)
+		if i < 0 {
+			l.skip(xerrors.Errorf("'%s' not found", link.Name))
+			return
+		}
+		prev[i].testExec.wait()
+		if link.ForTest {
+			prev[i].runExec.wait()
+		} else {
+			afterTest = append(afterTest, prev[i].runExec)
+		}
+	}
+	l.testExec.run(l.stdout, l.stderr)
+	for _, re := range afterTest {
+		re.wait()
+	}
+
+	if l.testExec.hasError(nil) || (l.testExec.hasError(ErrNotNeeded) && required(l.name, next)) {
+		l.runExec.run(l.stdout, l.stderr)
+	} else if !l.testExec.hasError(ErrNotNeeded) && !l.testExec.hasError(ErrExists)  {
+		l.runExec.skip(xerrors.Errorf("error during test: %w", l.testExec.error()))
+	}
 }
 
 type Link struct {
-	Name        string `toml:"name"`
-	Write       bool   `toml:"write"`
-	PathEnv     string `toml:"path-as"`
-	VersionEnv  string `toml:"version-as"`
-	MetadataEnv string `toml:"metadata-as"`
+	Name         string `toml:"name"`
+	PathEnv      string `toml:"path-as"`
+	VersionEnv   string `toml:"version-as"`
+	MetadataEnv  string `toml:"metadata-as"`
+	ForTest      bool   `toml:"for-test"`
+	LinkContents bool   `toml:"link-contents"`
+	LinkVersion  bool   `toml:"link-version"`
 }
 
 type Result struct {
-	Err          error
-
 	LayerPath    string
 	MetadataPath string
 }
@@ -39,61 +82,63 @@ type FinalResult struct {
 	Result
 }
 
-func (m Mux) For(name string, links ...Link) Mux {
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
+func (m Mux) Layer(name string, test, run LayerFunc, links ...Link) Mux {
+	var testExec, runExec *layerExec
+	if test != nil {
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+		testExec = &layerExec{
+			f:  test,
+			wg: wg,
+		}
+	}
+	if run != nil {
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+		runExec = &layerExec{
+			f:  run,
+			wg: wg,
+		}
+	}
 
 	return append(m, layer{
-		name:   name,
-		links:  links,
-		wg:     wg,
-		result: &Result{},
-		stdout: newBufferPipe(),
-		stderr: newBufferPipe(),
+		name:     name,
+		links:    links,
+		testExec: testExec,
+		runExec:  runExec,
+		stdout:   newBufferPipe(),
+		stderr:   newBufferPipe(),
 	})
 }
 
-func (l *layer) writes(name string) bool {
-	for _, link := range l.links {
-		if link.Name == name && link.Write {
-			return true
-		}
-	}
-	return false
+func (m Mux) Cache(name string, setup LayerFunc) Mux {
+	return m.Layer(name, nil, setup)
 }
 
-func (m Mux) find(name string) int {
-	if len(m) == 0 {
-		return -1
-	}
-	for i := range m[:len(m)-1] {
-		if m[i].name == name {
+func find(name string, layers []layer) int {
+	for i := range layers {
+		if layers[i].name == name {
 			return i
 		}
 	}
 	return -1
 }
 
-func (m Mux) Wait(fn func(Link, Result) error) error {
-	if len(m) == 0 {
-		return nil
-	}
-	for _, link := range m[len(m)-1].links {
-		i := m.find(link.Name)
-		if i < 0 {
-			return xerrors.Errorf("'%s' not found", link.Name)
-		}
-		m[i].wg.Wait()
-		for _, after := range m[i+1 : len(m)-1] {
-			if after.writes(m[i].name) {
-				after.wg.Wait()
+func required(name string, layers []layer) bool {
+	for _, layer := range layers {
+		for _, link := range layer.links {
+			if link.Name == name {
+				if link.ForTest {
+					return true
+				}
+				layer.testExec.wait()
+				if layer.testExec.hasError(nil) {
+					return true
+				}
 			}
 		}
-		if err := fn(link, *m[i].result); err != nil {
-			return err
-		}
 	}
-	return nil
+	return false
 }
 
 func (m Mux) WaitAll() []FinalResult {
@@ -121,31 +166,10 @@ func (m Mux) StreamAll(stdout, stderr io.Writer) {
 	}
 }
 
-func (m Mux) Out() io.Writer {
-	if len(m) == 0 {
-		return nil
+func (m Mux) Run() {
+	for i, layer := range m {
+		go layer.run(m[:i], m[i+1:])
 	}
-	return m[len(m)-1].stdout
-}
-
-func (m Mux) Err() io.Writer {
-	if len(m) == 0 {
-		return nil
-	}
-	return m[len(m)-1].stderr
-}
-
-func (m Mux) Done(result Result) {
-	if len(m) == 0 {
-		return
-	}
-	layer := m[len(m)-1]
-	*layer.result = result
-	layer.wg.Done()
-	layer.stdout.Flush()
-	layer.stderr.Flush()
-	layer.stdout.Close()
-	layer.stderr.Close()
 }
 
 type BufferPipe struct {

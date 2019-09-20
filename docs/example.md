@@ -7,6 +7,9 @@
 name = "web"
 command = "npm start"
 
+[[caches]]
+name = "npm-cache"
+
 [[layers]]
 name = "nodejs"
 expose = true
@@ -16,11 +19,6 @@ export = true
 inline = """
 jq -r .engines.node package.json > "$MD/version"
 """
-
-# special case: no-provide + no-require = empty dir w/ no plan entry
-[[layers]]
-name = "npm-cache"
-cache = true
 
 [[layers]]
 name = "modules"
@@ -43,7 +41,6 @@ echo "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
 
 [[layers.build.links]]
 name = "npm-cache"
-write = true
 path-as = "NPM_CACHE"
 ```
 
@@ -51,7 +48,7 @@ path-as = "NPM_CACHE"
 ```toml
 [[layers]]
 name = "nodejs" 
-recover = true
+store = true
 
 [layers.provide.test]
 inline = """
@@ -110,9 +107,8 @@ inline = """
 tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 """
 
-[[layers]]
+[[caches]]
 name = "npm-cache"
-cache = true
 
 [[layers]]
 name = "modules"
@@ -120,8 +116,7 @@ export = true
 
 [layers.build.test]
 inline = """
-sha=$(md5sum package-lock.json | cut -d' ' -f1)
-echo "$sha-${NODE_VERSION}" > "$MD/version"
+md5sum package-lock.json | cut -d' ' -f1 > "$MD/version"
 """
 
 [layers.build]
@@ -135,11 +130,10 @@ echo "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
 
 [[layers.build.links]]
 name = "nodejs"
-version-as = "NODE_VERSION"
+link-version = true
 
 [[layers.build.links]]
 name = "npm-cache"
-write = true
 path-as = "NPM_CACHE"
 ```
 
