@@ -24,9 +24,6 @@ func (l *layer) skip(err error) {
 	l.runExec.skip(err)
 }
 
-var ErrNotNeeded = xerrors.New("not needed")
-var ErrExists = xerrors.New("exists")
-
 func (l *layer) run(prev, next []layer) {
 	defer func() {
 		l.stdout.Flush()
@@ -35,8 +32,6 @@ func (l *layer) run(prev, next []layer) {
 		l.stderr.Close()
 	}()
 
-	// PROBLEM: test can't read linked test metadata unless ForTest applies to whole link (but that might cause deadlock?)
-	var afterTest []*layerExec
 	for _, link := range l.links {
 		i := find(link.Name, prev)
 		if i < 0 {
@@ -44,21 +39,14 @@ func (l *layer) run(prev, next []layer) {
 			return
 		}
 		prev[i].testExec.wait()
-		if link.ForTest {
-			prev[i].runExec.wait()
-		} else {
-			afterTest = append(afterTest, prev[i].runExec)
-		}
+		prev[i].runExec.wait()
 	}
-	l.testExec.run(l.stdout, l.stderr)
-	for _, re := range afterTest {
-		re.wait()
-	}
+	_, err := l.testExec.run(l.stdout, l.stderr)
 
-	if l.testExec.hasError(nil) || (l.testExec.hasError(ErrNotNeeded) && required(l.name, next)) {
+	if err == nil || err == ErrEmptyExec || (xerrors.Is(err, ErrNotNeeded) && required(l.name, next)) {
 		l.runExec.run(l.stdout, l.stderr)
-	} else if !l.testExec.hasError(ErrNotNeeded) && !l.testExec.hasError(ErrExists)  {
-		l.runExec.skip(xerrors.Errorf("error during test: %w", l.testExec.error()))
+	} else if !xerrors.Is(err, ErrNotNeeded) && !xerrors.Is(err, ErrExists)  {
+		l.runExec.skip(xerrors.Errorf("error during test: %w", err))
 	}
 }
 
@@ -83,29 +71,11 @@ type FinalResult struct {
 }
 
 func (m Mux) Layer(name string, test, run LayerFunc, links ...Link) Mux {
-	var testExec, runExec *layerExec
-	if test != nil {
-		wg := &sync.WaitGroup{}
-		wg.Add(1)
-		testExec = &layerExec{
-			f:  test,
-			wg: wg,
-		}
-	}
-	if run != nil {
-		wg := &sync.WaitGroup{}
-		wg.Add(1)
-		runExec = &layerExec{
-			f:  run,
-			wg: wg,
-		}
-	}
-
 	return append(m, layer{
 		name:     name,
 		links:    links,
-		testExec: testExec,
-		runExec:  runExec,
+		testExec: newLayerExec(test),
+		runExec:  newLayerExec(run),
 		stdout:   newBufferPipe(),
 		stderr:   newBufferPipe(),
 	})
@@ -131,8 +101,8 @@ func required(name string, layers []layer) bool {
 				if link.ForTest {
 					return true
 				}
-				layer.testExec.wait()
-				if layer.testExec.hasError(nil) {
+				_, err := layer.testExec.wait()
+				if err == nil || xerrors.Is(err, ErrEmptyExec) {
 					return true
 				}
 			}
