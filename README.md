@@ -62,10 +62,7 @@ SOLUTION: flag to add layer path to provide.test
 PROBLEM: easier to send BOM metadata to linked layers, but not always available when layer is not regenerated
 SOLUTION: replace metadata with saved metadata
 
-PROBLEM: deadlock occurs when layer must lookup whether layers that link to it need to be rebuilt
-PROBLEM: future layer lookup doesn't work for indirect rebuilds a -> b -> c
-
-[drop] metadata changes during provide are only accessible in BOM, not in linked layers (unless for-test?)
+metadata changes during provide are accessible in provide of layers that link to it
 
 - export + store = always comes back, rebuilds w/o cache on version mismatch, link does not change behavior
 - export = never comes back, is not created if version matches, link can force creation
