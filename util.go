@@ -11,14 +11,16 @@ import (
 )
 
 func IsFail(err error) bool {
-	if e, ok := err.(DetectError); ok {
+	var e DetectError
+	if xerrors.As(err, &e) {
 		return e == 100
 	}
 	return false
 }
 
 func IsError(err error) bool {
-	if e, ok := err.(DetectError); ok {
+	var e DetectError
+	if xerrors.As(err, &e) {
 		return e != 100
 	}
 	return false

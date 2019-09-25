@@ -40,7 +40,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	if _, err := toml.DecodeFile(planPath, &plan); err != nil {
 		return err
 	}
-	var mux layer.Mux
+	var mux layer.List
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
 		if lp.Provide == nil && lp.Require != nil {
@@ -92,7 +92,7 @@ func isUsed(name string, layers []Layer) bool {
 	return false
 }
 
-func buildLayer(lp *Layer, mux layer.Mux, requires []planRequire, shell, mdDir, appDir, layerDir string, used bool) {
+func buildLayer(lp *Layer, mux layer.List, requires []planRequire, shell, mdDir, appDir, layerDir string, used bool) {
 	if lp.Provide != nil {
 		if lp.Require == nil {
 			if err := writeMetadata(mdDir, lp.Version, lp.Metadata); err != nil {

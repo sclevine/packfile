@@ -41,7 +41,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	}
 	var requires []planRequire
 	var provides []planProvide
-	var mux layer.Mux
+	var mux layer.List
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
 		if lp.Provide != nil || lp.Build != nil {
@@ -119,7 +119,7 @@ func readRequire(name, path string) (planRequire, error) {
 	return out, nil
 }
 
-func detectLayer(lp *Layer, mux layer.Mux, shell, mdDir, appDir string) {
+func detectLayer(lp *Layer, mux layer.List, shell, mdDir, appDir string) {
 	if err := writeMetadata(mdDir, lp.Version, lp.Metadata); err != nil {
 		mux.Done(layer.Result{Err: err})
 		return

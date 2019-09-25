@@ -7,9 +7,17 @@ import (
 	"golang.org/x/xerrors"
 )
 
-var ErrNotNeeded = xerrors.New("not needed")
-var ErrExists = xerrors.New("exists")
-var ErrEmpty = xerrors.New("empty")
+var (
+	ErrNotNeeded = xerrors.New("not needed")
+	ErrExists    = xerrors.New("exists")
+	ErrEmpty     = xerrors.New("empty")
+)
+
+func IsFail(err error) bool {
+	return err != nil &&
+		!xerrors.Is(err, ErrNotNeeded) &&
+		!xerrors.Is(err, ErrExists)
+}
 
 var emptyLayerExec = newLayerExec(nil, nil, nil)
 

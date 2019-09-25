@@ -8,7 +8,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-type Mux []layer
+type List []layer
 
 type layer struct {
 	name      string
@@ -26,6 +26,7 @@ func (l *layer) skip(err error) {
 	l.runExec.skip(err)
 }
 
+// TODO: how does require work?
 func (l *layer) run(prev, next []layer) {
 	defer l.close()
 
@@ -34,50 +35,51 @@ func (l *layer) run(prev, next []layer) {
 		l.skip(err)
 		return
 	}
-	var results []LinkResult
+	var testRes []LinkResult
 	for i, ll := range linkLayers {
 		result, err := ll.testExec.wait()
-		if err != nil {
-			// FIXME: should we propagate non-ErrNotNeeded, non-ErrExists errors forward?
+		if IsFail(err) {
+			l.skip(xerrors.Errorf("test for link '%s' failed: %w", ll.name, err))
+			return
 		}
 		if l.links[i].ForTest {
 			result, err = ll.runExec.wait()
-			if err != nil {
-				// FIXME: should we propagate run errors forward?
+			if IsFail(err) {
+				l.skip(xerrors.Errorf("link '%s' (needed for test) failed: %w", ll.name, err))
+				return
 			}
 		}
-		results = append(results, LinkResult{Link: l.links[i], Result: result})
+		testRes = append(testRes, LinkResult{Link: l.links[i], Result: result})
 	}
 
-	_, err = l.testExec.run(results)
-	if err == nil || err == ErrEmpty || (xerrors.Is(err, ErrNotNeeded) && required(l.name, next)) {
-		l.mustBuild.set(true)
-		var results []LinkResult
-		for i, ll := range linkLayers {
-			result, err := ll.runExec.wait()
-			if err != nil {
-				// FIXME: should we propagate run errors forward?
-			}
-			results = append(results, LinkResult{Link: l.links[i], Result: result})
-		}
-		_, err := l.runExec.run(results)
-		if err != nil {
-			// FIXME: what about this error?
-		}
-	} else if !xerrors.Is(err, ErrNotNeeded) && !xerrors.Is(err, ErrExists) {
+	_, err = l.testExec.run(testRes)
+	if err != nil && err != ErrEmpty && !(xerrors.Is(err, ErrNotNeeded) && required(l.name, next)) {
 		l.mustBuild.set(false)
-		l.runExec.skip(xerrors.Errorf("error during test: %w", err))
-	} else {
-		l.mustBuild.set(false)
+		if IsFail(err) {
+			l.runExec.skip(xerrors.Errorf("test for '%s' failed: %w", l.name, err))
+			return
+		}
 		l.runExec.skip(nil)
+		return
 	}
+	l.mustBuild.set(true)
+	var runRes []LinkResult
+	for i, ll := range linkLayers {
+		result, err := ll.runExec.wait()
+		if IsFail(err) {
+			l.runExec.skip(xerrors.Errorf("link '%s' failed: %w", l.name, err))
+			return
+		}
+		runRes = append(runRes, LinkResult{Link: l.links[i], Result: result})
+	}
+	l.runExec.run(runRes)
 }
 
 func (l *layer) close() {
+	defer l.stderr.Close()
+	defer l.stdout.Close()
 	l.stdout.Flush()
 	l.stderr.Flush()
-	l.stdout.Close()
-	l.stderr.Close()
 }
 
 type Link struct {
@@ -97,13 +99,16 @@ type Result struct {
 
 type FinalResult struct {
 	Name string
+	Err  error
 	Result
 }
 
-func (m Mux) Layer(name string, test, run LayerFunc, links ...Link) Mux {
+func NewList() List {
+	return nil
+}
+
+func (m List) Layer(name string, test, run LayerFunc, links ...Link) List {
 	outw, errw := newBufferPipe(), newBufferPipe()
-	reqWG := &sync.WaitGroup{}
-	reqWG.Add(1)
 	return append(m, layer{
 		name:      name,
 		links:     links,
@@ -115,7 +120,7 @@ func (m Mux) Layer(name string, test, run LayerFunc, links ...Link) Mux {
 	})
 }
 
-func (m Mux) Cache(name string, setup LayerFunc) Mux {
+func (m List) Cache(name string, setup LayerFunc) List {
 	return m.Layer(name, nil, setup)
 }
 
@@ -154,17 +159,16 @@ func required(name string, layers []layer) bool {
 	return false
 }
 
-func (m Mux) WaitAll() []FinalResult {
+func (m List) WaitAll() []FinalResult {
 	var out []FinalResult
 	for _, layer := range m {
 		result, err := layer.runExec.wait()
-
-		out = append(out, FinalResult{layer.name, result})
+		out = append(out, FinalResult{layer.name, err, result})
 	}
 	return out
 }
 
-func (m Mux) StreamAll(stdout, stderr io.Writer) {
+func (m List) StreamAll(stdout, stderr io.Writer) {
 	for _, layer := range m {
 		wg := &sync.WaitGroup{}
 		wg.Add(2)
@@ -180,7 +184,7 @@ func (m Mux) StreamAll(stdout, stderr io.Writer) {
 	}
 }
 
-func (m Mux) Run() {
+func (m List) Run() {
 	for i, layer := range m {
 		go layer.run(m[:i], m[i+1:])
 	}
