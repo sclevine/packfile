@@ -25,10 +25,6 @@ type Process struct {
 	Direct  bool     `toml:"direct"`
 }
 
-//func (bp *BP) Cache(name string, setup func() error) {
-//
-//}
-
 type Cache interface {
 	Name() string
 	Setup() error

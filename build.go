@@ -40,7 +40,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	if _, err := toml.DecodeFile(planPath, &plan); err != nil {
 		return err
 	}
-	var mux layer.List
+	list := layer.NewList()
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
 		if lp.Provide == nil && lp.Require != nil {
@@ -55,11 +55,12 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		if err := os.MkdirAll(layerDir, 0777); err != nil {
 			return err
 		}
-		mux = mux.For(lp.Name, lp.Provide.Links...)
-		go buildLayer(lp, mux, plan.get(lp.Name), shell, mdDir, appDir, layerDir, isUsed(lp.Name, pf.Layers[i+1:]))
+		list = list.Add(lp.Name, lp.Provide.WriteApp, lp.Provide.Links...)
+		go buildLayer(lp, list, plan.get(lp.Name), shell, mdDir, appDir, layerDir, isUsed(lp.Name, pf.Layers[i+1:]))
 	}
-	mux.StreamAll(os.Stdout, os.Stderr)
-	for _, res := range mux.WaitAll() {
+	list.Run()
+	list.StreamAll(os.Stdout, os.Stderr)
+	for _, res := range list.WaitAll() {
 		if IsFail(res.Err) {
 			continue
 		} else if err != nil {
@@ -92,7 +93,7 @@ func isUsed(name string, layers []Layer) bool {
 	return false
 }
 
-func buildLayer(lp *Layer, mux layer.List, requires []planRequire, shell, mdDir, appDir, layerDir string, used bool) {
+func buildLayer(l *Layer, requires []planRequire, shell, mdDir, appDir, layerDir string, used bool) {
 	if lp.Provide != nil {
 		if lp.Require == nil {
 			if err := writeMetadata(mdDir, lp.Version, lp.Metadata); err != nil {

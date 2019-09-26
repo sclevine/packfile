@@ -19,7 +19,7 @@ func IsFail(err error) bool {
 		!xerrors.Is(err, ErrExists)
 }
 
-var emptyLayerExec = newLayerExec(nil, nil, nil)
+var emptyLayerExec = newLayerExec(nil, nil, nil, nil)
 
 type LinkResult struct {
 	Link
@@ -31,16 +31,18 @@ type LayerFunc func(res []LinkResult, out, err io.Writer) (Result, error)
 type layerExec struct {
 	f          LayerFunc
 	wg         *sync.WaitGroup
+	lock       *sync.Mutex
 	res        Result
 	err        error
 	outw, errw io.Writer
 }
 
-func newLayerExec(f LayerFunc, out, err io.Writer) *layerExec {
+func newLayerExec(f LayerFunc, lock *sync.Mutex, out, err io.Writer) *layerExec {
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	return &layerExec{
 		f: f, wg: wg,
+		lock: lock,
 		outw: out,
 		errw: err,
 	}
@@ -50,8 +52,12 @@ func (l *layerExec) run(res []LinkResult) (Result, error) {
 	if l.f == nil {
 		return Result{}, ErrEmpty
 	}
+	if l.lock != nil {
+		l.lock.Lock()
+		defer l.lock.Unlock()
+	}
+	defer l.wg.Done()
 	l.res, l.err = l.f(res, l.outw, l.errw)
-	l.wg.Done()
 	return l.res, l.err
 }
 

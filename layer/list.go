@@ -16,6 +16,7 @@ type layer struct {
 	runExec   *layerExec
 	testExec  *layerExec
 	mustBuild *layerBool
+	lock      *sync.Mutex
 	stdout    *BufferPipe
 	stderr    *BufferPipe
 }
@@ -107,21 +108,32 @@ func NewList() List {
 	return nil
 }
 
-func (m List) Layer(name string, test, run LayerFunc, links ...Link) List {
+func (m List) Add(name string, write bool, test, run LayerFunc, links ...Link) List {
 	outw, errw := newBufferPipe(), newBufferPipe()
+	var lock *sync.Mutex
+	if len(m) != 0 {
+		lock = m[0].lock
+	} else {
+		lock = &sync.Mutex{}
+	}
+	layerLock := lock
+	if !write {
+		layerLock = nil
+	}
 	return append(m, layer{
 		name:      name,
 		links:     links,
-		testExec:  newLayerExec(test, outw, errw),
-		runExec:   newLayerExec(run, outw, errw),
+		testExec:  newLayerExec(test, layerLock, outw, errw),
+		runExec:   newLayerExec(run, layerLock, outw, errw),
 		mustBuild: newLayerBool(),
+		lock:      lock,
 		stdout:    outw,
 		stderr:    errw,
 	})
 }
 
-func (m List) Cache(name string, setup LayerFunc) List {
-	return m.Layer(name, nil, setup)
+func (m List) AddSimple(name string, run LayerFunc) List {
+	return m.Add(name, false, nil, run)
 }
 
 func findAll(links []Link, layers []layer) ([]*layer, error) {
