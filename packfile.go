@@ -1,6 +1,8 @@
 package packfile
 
-import "github.com/sclevine/packfile/layer"
+import (
+	"github.com/sclevine/packfile/sync"
+)
 
 const defaultShell = "/usr/bin/env bash"
 
@@ -50,7 +52,7 @@ type Require struct {
 type Provide struct {
 	Exec
 	Test     Exec         `toml:"test"`
-	Links    []layer.Link `toml:"links"`
+	Links    []lsync.Link `toml:"links"`
 	Deps     []Dep        `toml:"deps"`
 	Env      Envs         `toml:"env"`
 	Profile  []File       `toml:"profile"`

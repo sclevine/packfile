@@ -2,6 +2,7 @@ package packfile
 
 import (
 	"fmt"
+	"github.com/sclevine/packfile/sync"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -119,20 +120,20 @@ func readRequire(name, path string) (planRequire, error) {
 	return out, nil
 }
 
-func detectLayer(lp *Layer, mux layer.List, shell, mdDir, appDir string) {
+func detectLayer(lp *Layer, shell, mdDir, appDir string) {
 	if err := writeMetadata(mdDir, lp.Version, lp.Metadata); err != nil {
-		mux.Done(layer.Result{Err: err})
+		mux.Done(lsync.Result{Err: err})
 		return
 	}
 	if lp.Require == nil {
-		mux.Done(layer.Result{MetadataPath: mdDir})
+		mux.Done(lsync.Result{MetadataPath: mdDir})
 	}
 
 	env := os.Environ()
 	env = append(env, "APP="+appDir, "MD="+mdDir)
 	cmd, c, err := execCmd(&lp.Require.Exec, shell)
 	if err != nil {
-		mux.Done(layer.Result{Err: err})
+		mux.Done(lsync.Result{Err: err})
 		return
 	}
 	defer c.Close()
@@ -141,22 +142,22 @@ func detectLayer(lp *Layer, mux layer.List, shell, mdDir, appDir string) {
 	cmd.Stdout = mux.Out()
 	cmd.Stderr = mux.Err()
 	if err := cmd.Run(); err != nil {
-		mux.Done(layer.Result{Err: err})
+		mux.Done(lsync.Result{Err: err})
 		return
 	}
 
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				mux.Done(layer.Result{Err: DetectError(status.ExitStatus())})
+				mux.Done(lsync.Result{Err: DetectError(status.ExitStatus())})
 				return
 			}
 		}
-		mux.Done(layer.Result{Err: err})
+		mux.Done(lsync.Result{Err: err})
 		return
 	}
 
-	mux.Done(layer.Result{MetadataPath: mdDir})
+	mux.Done(lsync.Result{MetadataPath: mdDir})
 }
 
 type DetectError int

@@ -1,6 +1,7 @@
 package packfile
 
 import (
+	"github.com/sclevine/packfile/sync"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -97,13 +98,13 @@ func buildLayer(l *Layer, requires []planRequire, shell, mdDir, appDir, layerDir
 	if lp.Provide != nil {
 		if lp.Require == nil {
 			if err := writeMetadata(mdDir, lp.Version, lp.Metadata); err != nil {
-				mux.Done(layer.Result{Err: err})
+				mux.Done(lsync.Result{Err: err})
 				return
 			}
 		}
 		for _, req := range requires {
 			if err := writeMetadata(mdDir, req.Version, req.Metadata); err != nil {
-				mux.Done(layer.Result{Err: err})
+				mux.Done(lsync.Result{Err: err})
 				return
 			}
 		}
@@ -112,7 +113,7 @@ func buildLayer(l *Layer, requires []planRequire, shell, mdDir, appDir, layerDir
 	env := os.Environ()
 	env = append(env, "APP="+appDir)
 
-	if err := mux.Wait(func(link layer.Link, res layer.Result) error {
+	if err := mux.Wait(func(link lsync.Link, res lsync.Result) error {
 		if res.Err != nil {
 			return xerrors.Errorf("failed to link '%s': %w", link.Name, res.Err)
 		}
@@ -131,14 +132,14 @@ func buildLayer(l *Layer, requires []planRequire, shell, mdDir, appDir, layerDir
 		}
 		return nil
 	}); err != nil {
-		mux.Done(layer.Result{Err: err})
+		mux.Done(lsync.Result{Err: err})
 		return
 	}
 
 	env = append(env, "MD="+mdDir)
 	cmd, c, err := execCmd(&lp.Provide.Test, shell)
 	if err != nil {
-		mux.Done(layer.Result{Err: err})
+		mux.Done(lsync.Result{Err: err})
 		return
 	}
 	defer c.Close()
@@ -147,22 +148,22 @@ func buildLayer(l *Layer, requires []planRequire, shell, mdDir, appDir, layerDir
 	cmd.Stdout = mux.Out()
 	cmd.Stderr = mux.Err()
 	if err := cmd.Run(); err != nil {
-		mux.Done(layer.Result{Err: err})
+		mux.Done(lsync.Result{Err: err})
 		return
 	}
 
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				mux.Done(layer.Result{Err: DetectError(status.ExitStatus())})
+				mux.Done(lsync.Result{Err: DetectError(status.ExitStatus())})
 				return
 			}
 		}
-		mux.Done(layer.Result{Err: err})
+		mux.Done(lsync.Result{Err: err})
 		return
 	}
 
 	// compare versions, delete layer or skip
 
-	mux.Done(layer.Result{LayerPath: layerDir, MetadataPath: mdDir})
+	mux.Done(lsync.Result{LayerPath: layerDir, MetadataPath: mdDir})
 }

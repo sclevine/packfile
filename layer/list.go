@@ -1,33 +1,43 @@
 package layer
 
 import (
-	"bufio"
 	"io"
 	"sync"
 
 	"golang.org/x/xerrors"
+
+	"github.com/sclevine/packfile/lsync"
 )
+
+var (
+	ErrNotNeeded = xerrors.New("not needed")
+	ErrExists    = xerrors.New("exists")
+)
+
+func IsFail(err error) bool {
+	return err != nil &&
+		!xerrors.Is(err, ErrNotNeeded) &&
+		!xerrors.Is(err, ErrExists)
+}
 
 type List []layer
 
 type layer struct {
-	name      string
-	links     []Link
-	runExec   *layerExec
-	testExec  *layerExec
-	mustBuild *layerBool
-	lock      *sync.Mutex
-	stdout    *BufferPipe
-	stderr    *BufferPipe
+	name     string
+	links    []lsync.Link
+	runExec  *lsync.Exec
+	testExec *lsync.Exec
+	force    *lsync.Bool
+	stdout   *lsync.BufferPipe
+	stderr   *lsync.BufferPipe
 }
 
 func (l *layer) skip(err error) {
-	l.mustBuild.set(false)
-	l.testExec.skip(err)
-	l.runExec.skip(err)
+	l.force.Set(false)
+	l.testExec.Skip(err)
+	l.runExec.Skip(err)
 }
 
-// TODO: how does require work?
 func (l *layer) run(prev, next []layer) {
 	defer l.close()
 
@@ -36,44 +46,60 @@ func (l *layer) run(prev, next []layer) {
 		l.skip(err)
 		return
 	}
-	var testRes []LinkResult
+	var testRes []lsync.LinkResult
 	for i, ll := range linkLayers {
-		result, err := ll.testExec.wait()
+		result, err := ll.testExec.Wait()
 		if IsFail(err) {
 			l.skip(xerrors.Errorf("test for link '%s' failed: %w", ll.name, err))
 			return
 		}
 		if l.links[i].ForTest {
-			result, err = ll.runExec.wait()
+			result, err = ll.runExec.Wait()
 			if IsFail(err) {
 				l.skip(xerrors.Errorf("link '%s' (needed for test) failed: %w", ll.name, err))
 				return
 			}
 		}
-		testRes = append(testRes, LinkResult{Link: l.links[i], Result: result})
+		testRes = append(testRes, lsync.LinkResult{Link: l.links[i], Result: result})
 	}
 
-	_, err = l.testExec.run(testRes)
-	if err != nil && err != ErrEmpty && !(xerrors.Is(err, ErrNotNeeded) && required(l.name, next)) {
-		l.mustBuild.set(false)
+	_, err = l.testExec.Run(testRes)
+	// FIXME: before proceeding to run, wait for further tests to finish (i.e., wait via required)
+	if err != nil && err != lsync.ErrEmpty && !(xerrors.Is(err, ErrNotNeeded) && required(l.name, next)) {
+		l.force.Set(false)
 		if IsFail(err) {
-			l.runExec.skip(xerrors.Errorf("test for '%s' failed: %w", l.name, err))
+			l.runExec.Skip(xerrors.Errorf("test for '%s' failed: %w", l.name, err))
 			return
 		}
-		l.runExec.skip(nil)
+		// TODO: propagate test result forward?
+		l.runExec.Skip(nil)
 		return
 	}
-	l.mustBuild.set(true)
-	var runRes []LinkResult
+	l.force.Set(true)
+	var runRes []lsync.LinkResult
 	for i, ll := range linkLayers {
-		result, err := ll.runExec.wait()
+		result, err := ll.runExec.Wait()
 		if IsFail(err) {
-			l.runExec.skip(xerrors.Errorf("link '%s' failed: %w", l.name, err))
+			l.runExec.Skip(xerrors.Errorf("link '%s' failed: %w", l.name, err))
 			return
 		}
-		runRes = append(runRes, LinkResult{Link: l.links[i], Result: result})
+		runRes = append(runRes, lsync.LinkResult{Link: l.links[i], Result: result})
 	}
-	l.runExec.run(runRes)
+	l.runExec.Run(runRes)
+}
+
+func (l *layer) stream(out, err io.Writer) {
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	go func() {
+		io.Copy(out, l.stdout)
+		wg.Done()
+	}()
+	go func() {
+		io.Copy(err, l.stderr)
+		wg.Done()
+	}()
+	wg.Wait()
 }
 
 func (l *layer) close() {
@@ -83,60 +109,36 @@ func (l *layer) close() {
 	l.stderr.Flush()
 }
 
-type Link struct {
-	Name         string `toml:"name"`
-	PathEnv      string `toml:"path-as"`
-	VersionEnv   string `toml:"version-as"`
-	MetadataEnv  string `toml:"metadata-as"`
-	ForTest      bool   `toml:"for-test"`
-	LinkContents bool   `toml:"link-contents"`
-	LinkVersion  bool   `toml:"link-version"`
-}
-
-type Result struct {
-	LayerPath    string
-	MetadataPath string
-}
-
 type FinalResult struct {
 	Name string
 	Err  error
-	Result
+	lsync.Result
 }
 
 func NewList() List {
 	return nil
 }
 
-func (m List) Add(name string, write bool, test, run LayerFunc, links ...Link) List {
-	outw, errw := newBufferPipe(), newBufferPipe()
-	var lock *sync.Mutex
-	if len(m) != 0 {
-		lock = m[0].lock
-	} else {
-		lock = &sync.Mutex{}
-	}
-	layerLock := lock
-	if !write {
-		layerLock = nil
-	}
+type Layer interface {
+	Links() []lsync.Link
+	Run(results []lsync.LinkResult) (lsync.Result, error)
+	Test(results []lsync.LinkResult) (lsync.Result, error)
+	Stream(out, err io.Writer)
+	Close()
+}
+
+func (m List) Add(name string, test, run lsync.LayerFunc, links ...lsync.Link) List {
+	stdout, stderr := NewBufferPipe(), NewBufferPipe()
 	return append(m, layer{
-		name:      name,
-		links:     links,
-		testExec:  newLayerExec(test, layerLock, outw, errw),
-		runExec:   newLayerExec(run, layerLock, outw, errw),
-		mustBuild: newLayerBool(),
-		lock:      lock,
-		stdout:    outw,
-		stderr:    errw,
+		name:     name,
+		links:    links,
+		testExec: lsync.NewExec(test),
+		runExec:  lsync.NewExec(run),
+		force:    lsync.NewBool(),
 	})
 }
 
-func (m List) AddSimple(name string, run LayerFunc) List {
-	return m.Add(name, false, nil, run)
-}
-
-func findAll(links []Link, layers []layer) ([]*layer, error) {
+func findAll(links []lsync.Link, layers []layer) ([]*layer, error) {
 	var out []*layer
 	for _, link := range links {
 		layer := find(link.Name, layers)
@@ -164,7 +166,7 @@ func required(name string, layers []layer) bool {
 				if link.ForTest {
 					return true
 				}
-				return layer.mustBuild.wait()
+				return layer.force.Wait()
 			}
 		}
 	}
@@ -174,7 +176,7 @@ func required(name string, layers []layer) bool {
 func (m List) WaitAll() []FinalResult {
 	var out []FinalResult
 	for _, layer := range m {
-		result, err := layer.runExec.wait()
+		result, err := layer.runExec.Wait()
 		out = append(out, FinalResult{layer.name, err, result})
 	}
 	return out
@@ -182,37 +184,12 @@ func (m List) WaitAll() []FinalResult {
 
 func (m List) StreamAll(stdout, stderr io.Writer) {
 	for _, layer := range m {
-		wg := &sync.WaitGroup{}
-		wg.Add(2)
-		go func() {
-			io.Copy(stdout, layer.stdout)
-			wg.Done()
-		}()
-		go func() {
-			io.Copy(stderr, layer.stderr)
-			wg.Done()
-		}()
-		wg.Wait()
+		layer.stream(stdout, stderr)
 	}
 }
 
 func (m List) Run() {
 	for i, layer := range m {
 		go layer.run(m[:i], m[i+1:])
-	}
-}
-
-type BufferPipe struct {
-	*bufio.Writer
-	io.Reader
-	io.Closer
-}
-
-func newBufferPipe() *BufferPipe {
-	r, wc := io.Pipe()
-	return &BufferPipe{
-		Writer: bufio.NewWriter(wc),
-		Reader: r,
-		Closer: wc,
 	}
 }

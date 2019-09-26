@@ -72,3 +72,5 @@ metadata changes during provide are accessible in provide of layers that link to
 - export + expose = never comes back, always rebuilt, link does not change behavior
 
 - the version from provide.test is always matched against the version from provide.test
+
+PROBLEM: no cache coherency guarantee for non-exported layers, so link-contents is a lie
