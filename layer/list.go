@@ -2,7 +2,6 @@ package layer
 
 import (
 	"io"
-	"sync"
 
 	"golang.org/x/xerrors"
 
@@ -20,93 +19,71 @@ func IsFail(err error) bool {
 		!xerrors.Is(err, ErrExists)
 }
 
-type List []layer
+type List []entry
 
-type layer struct {
+type entry struct {
+	Streamer
 	name     string
 	links    []lsync.Link
 	runExec  *lsync.Exec
 	testExec *lsync.Exec
-	force    *lsync.Bool
-	stdout   *lsync.BufferPipe
-	stderr   *lsync.BufferPipe
+	built    *lsync.Bool
 }
 
-func (l *layer) skip(err error) {
-	l.force.Set(false)
-	l.testExec.Skip(err)
-	l.runExec.Skip(err)
+func (e *entry) skip(err error) {
+	e.built.Set(false)
+	e.testExec.Skip(err)
+	e.runExec.Skip(err)
 }
 
-func (l *layer) run(prev, next []layer) {
-	defer l.close()
+func (e *entry) run(prev, next []entry) {
+	defer e.Close()
 
-	linkLayers, err := findAll(l.links, prev)
+	linkLayers, err := findAll(e.links, prev)
 	if err != nil {
-		l.skip(err)
+		e.skip(err)
 		return
 	}
 	var testRes []lsync.LinkResult
 	for i, ll := range linkLayers {
 		result, err := ll.testExec.Wait()
 		if IsFail(err) {
-			l.skip(xerrors.Errorf("test for link '%s' failed: %w", ll.name, err))
+			e.skip(xerrors.Errorf("test for link '%s' failed: %w", ll.name, err))
 			return
 		}
-		if l.links[i].ForTest {
+		if e.links[i].ForTest {
 			result, err = ll.runExec.Wait()
 			if IsFail(err) {
-				l.skip(xerrors.Errorf("link '%s' (needed for test) failed: %w", ll.name, err))
+				e.skip(xerrors.Errorf("link '%s' (needed for test) failed: %w", ll.name, err))
 				return
 			}
 		}
-		testRes = append(testRes, lsync.LinkResult{Link: l.links[i], Result: result})
+		testRes = append(testRes, lsync.LinkResult{Link: e.links[i], Result: result})
 	}
 
-	_, err = l.testExec.Run(testRes)
-	// FIXME: before proceeding to run, wait for further tests to finish (i.e., wait via required)
-	if err != nil && err != lsync.ErrEmpty && !(xerrors.Is(err, ErrNotNeeded) && required(l.name, next)) {
-		l.force.Set(false)
+	result, err := e.testExec.Run(testRes)
+	if err != nil && err != lsync.ErrEmpty && !(xerrors.Is(err, ErrNotNeeded) && used(e.name, next)) {
+		e.built.Set(false)
 		if IsFail(err) {
-			l.runExec.Skip(xerrors.Errorf("test for '%s' failed: %w", l.name, err))
+			e.runExec.Skip(xerrors.Errorf("test for '%s' failed: %w", e.name, err))
 			return
 		}
-		// TODO: propagate test result forward?
-		l.runExec.Skip(nil)
+		e.runExec.Set(result, err)
 		return
 	}
-	l.force.Set(true)
+	wait(e.name, next) // before proceeding to run, wait for further tests to finish (also: used doesn't wait for all links)
+
+	e.built.Set(true)
 	var runRes []lsync.LinkResult
 	for i, ll := range linkLayers {
 		result, err := ll.runExec.Wait()
 		if IsFail(err) {
-			l.runExec.Skip(xerrors.Errorf("link '%s' failed: %w", l.name, err))
+			e.runExec.Skip(xerrors.Errorf("link '%s' failed: %w", e.name, err))
 			return
 		}
-		runRes = append(runRes, lsync.LinkResult{Link: l.links[i], Result: result})
+		runRes = append(runRes, lsync.LinkResult{Link: e.links[i], Result: result})
 	}
-	l.runExec.Run(runRes)
-}
-
-func (l *layer) stream(out, err io.Writer) {
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
-	go func() {
-		io.Copy(out, l.stdout)
-		wg.Done()
-	}()
-	go func() {
-		io.Copy(err, l.stderr)
-		wg.Done()
-	}()
-	wg.Wait()
-}
-
-func (l *layer) close() {
-	defer l.stderr.Close()
-	defer l.stdout.Close()
-	l.stdout.Flush()
-	l.stderr.Flush()
+	e.runExec.Run(runRes)
 }
 
 type FinalResult struct {
@@ -120,60 +97,80 @@ func NewList() List {
 }
 
 type Layer interface {
+	Streamer
+	Name() string
 	Links() []lsync.Link
 	Run(results []lsync.LinkResult) (lsync.Result, error)
+}
+
+type LayerTester interface {
 	Test(results []lsync.LinkResult) (lsync.Result, error)
+}
+
+type Streamer interface {
 	Stream(out, err io.Writer)
 	Close()
 }
 
-func (m List) Add(name string, test, run lsync.LayerFunc, links ...lsync.Link) List {
-	stdout, stderr := NewBufferPipe(), NewBufferPipe()
-	return append(m, layer{
-		name:     name,
-		links:    links,
-		testExec: lsync.NewExec(test),
-		runExec:  lsync.NewExec(run),
-		force:    lsync.NewBool(),
-	})
+func (m List) Add(layer Layer) List {
+	e := entry{
+		Streamer: layer,
+		name:     layer.Name(),
+		links:    layer.Links(),
+		runExec:  lsync.NewExec(layer.Run),
+		built:    lsync.NewBool(),
+	}
+	if lt, ok := layer.(LayerTester); ok {
+		e.testExec = lsync.NewExec(lt.Test)
+	} else {
+		e.testExec = lsync.NewExec(nil)
+	}
+	return append(m, e)
 }
 
-func findAll(links []lsync.Link, layers []layer) ([]*layer, error) {
-	var out []*layer
+func findAll(links []lsync.Link, layers []entry) ([]entry, error) {
+	var out []entry
 	for _, link := range links {
-		layer := find(link.Name, layers)
-		if layer == nil {
+		l, ok := find(link.Name, layers)
+		if !ok {
 			return nil, xerrors.Errorf("'%s' not found", link.Name)
 		}
-		out = append(out, layer)
+		out = append(out, l)
 	}
 	return out, nil
 }
 
-func find(name string, layers []layer) *layer {
+func find(name string, layers []entry) (entry, bool) {
 	for i := range layers {
 		if layers[i].name == name {
-			return &layers[i]
+			return layers[i], true
 		}
 	}
-	return nil
+	return entry{}, false
 }
 
-func required(name string, layers []layer) bool {
+func used(name string, layers []entry) bool {
 	for _, layer := range layers {
 		for _, link := range layer.links {
 			if link.Name == name {
-				if link.ForTest {
-					return true
-				}
-				return layer.force.Wait()
+				return link.ForTest || layer.built.Wait()
 			}
 		}
 	}
 	return false
 }
 
-func (m List) WaitAll() []FinalResult {
+func wait(name string, layers []entry) {
+	for _, layer := range layers {
+		for _, link := range layer.links {
+			if link.Name == name && !link.ForTest {
+				layer.built.Wait()
+			}
+		}
+	}
+}
+
+func (m List) Wait() []FinalResult {
 	var out []FinalResult
 	for _, layer := range m {
 		result, err := layer.runExec.Wait()
@@ -182,9 +179,9 @@ func (m List) WaitAll() []FinalResult {
 	return out
 }
 
-func (m List) StreamAll(stdout, stderr io.Writer) {
+func (m List) Stream(stdout, stderr io.Writer) {
 	for _, layer := range m {
-		layer.stream(stdout, stderr)
+		layer.Stream(stdout, stderr)
 	}
 }
 

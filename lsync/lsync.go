@@ -32,7 +32,7 @@ type Result struct {
 	MetadataPath string
 }
 
-type LayerFunc func(res []LinkResult) (Result, error)
+type LayerFunc func(lrs []LinkResult) (Result, error)
 
 type Exec struct {
 	f   LayerFunc
@@ -47,12 +47,12 @@ func NewExec(f LayerFunc) *Exec {
 	return &Exec{f: f, wg: wg}
 }
 
-func (l *Exec) Run(res []LinkResult) (Result, error) {
+func (l *Exec) Run(lrs []LinkResult) (Result, error) {
 	if l.f == nil {
 		return Result{}, ErrEmpty
 	}
 	defer l.wg.Done()
-	l.res, l.err = l.f(res)
+	l.res, l.err = l.f(lrs)
 	return l.res, l.err
 }
 
@@ -60,8 +60,16 @@ func (l *Exec) Skip(err error) {
 	if l.f == nil {
 		return
 	}
+	defer l.wg.Done()
 	l.err = err
-	l.wg.Done()
+}
+
+func (l *Exec) Set(res Result, err error) {
+	if l.f == nil {
+		return
+	}
+	defer l.wg.Done()
+	l.res, l.err = res, err
 }
 
 func (l *Exec) Wait() (Result, error) {
@@ -106,4 +114,40 @@ func NewBufferPipe() *BufferPipe {
 		Reader: r,
 		Closer: wc,
 	}
+}
+
+type Streamer struct {
+	out, err *BufferPipe
+}
+
+func NewStreamer() *Streamer {
+	return &Streamer{
+		out: NewBufferPipe(),
+		err: NewBufferPipe(),
+	}
+}
+
+func (l *Streamer) Writers() (out, err io.Writer) {
+	return l.out, l.err
+}
+
+func (l *Streamer) Stream(out, err io.Writer) {
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	go func() {
+		io.Copy(out, l.out)
+		wg.Done()
+	}()
+	go func() {
+		io.Copy(err, l.err)
+		wg.Done()
+	}()
+	wg.Wait()
+}
+
+func (l *Streamer) Close() {
+	defer l.err.Close()
+	defer l.out.Close()
+	l.out.Flush()
+	l.err.Flush()
 }

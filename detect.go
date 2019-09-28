@@ -2,12 +2,13 @@ package packfile
 
 import (
 	"fmt"
-	"github.com/sclevine/packfile/sync"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
+
+	"github.com/sclevine/packfile/lsync"
 
 	"github.com/BurntSushi/toml"
 
@@ -42,7 +43,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	}
 	var requires []planRequire
 	var provides []planProvide
-	var mux layer.List
+	list := layer.NewList()
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
 		if lp.Provide != nil || lp.Build != nil {
@@ -56,11 +57,17 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 			return err
 		}
 		defer os.RemoveAll(mdDir)
-		mux = mux.For(lp.Name)
-		go detectLayer(lp, mux, shell, mdDir, appDir)
+		list = list.Add(&detectLayer{
+			Streamer: lsync.NewStreamer(),
+			layer: lp,
+			shell: shell,
+			mdDir: mdDir,
+			appDir: appDir,
+		})
 	}
-	mux.StreamAll(os.Stdout, os.Stderr)
-	for _, res := range mux.WaitAll() {
+	list.Run()
+	list.Stream(os.Stdout, os.Stderr)
+	for _, res := range list.Wait() {
 		if IsFail(res.Err) {
 			continue
 		} else if err != nil {
@@ -76,10 +83,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := toml.NewEncoder(f).Encode(planSections{requires, provides}); err != nil {
-		return err
-	}
-	return nil
+	return toml.NewEncoder(f).Encode(planSections{requires, provides})
 }
 
 func eachFile(dir string, fn func(name, path string) error) error {
@@ -120,44 +124,55 @@ func readRequire(name, path string) (planRequire, error) {
 	return out, nil
 }
 
-func detectLayer(lp *Layer, shell, mdDir, appDir string) {
-	if err := writeMetadata(mdDir, lp.Version, lp.Metadata); err != nil {
-		mux.Done(lsync.Result{Err: err})
-		return
+type detectLayer struct {
+	*lsync.Streamer
+	layer  *Layer
+	shell  string
+	mdDir  string
+	appDir string
+}
+
+func (d *detectLayer) Name() string {
+	return d.layer.Name
+}
+
+func (d *detectLayer) Links() []lsync.Link {
+	return nil
+}
+
+func (d *detectLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
+	if err := writeMetadata(d.mdDir, d.layer.Version, d.layer.Metadata); err != nil {
+		return lsync.Result{}, err
 	}
-	if lp.Require == nil {
-		mux.Done(lsync.Result{MetadataPath: mdDir})
+	if d.layer.Require == nil {
+		return lsync.Result{MetadataPath: d.mdDir}, nil
 	}
 
 	env := os.Environ()
-	env = append(env, "APP="+appDir, "MD="+mdDir)
-	cmd, c, err := execCmd(&lp.Require.Exec, shell)
+	env = append(env, "APP="+d.appDir, "MD="+d.mdDir)
+	cmd, c, err := execCmd(&d.layer.Require.Exec, d.shell)
 	if err != nil {
-		mux.Done(lsync.Result{Err: err})
-		return
+		return lsync.Result{}, err
 	}
 	defer c.Close()
-	cmd.Dir = appDir
+	cmd.Dir = d.appDir
 	cmd.Env = env
-	cmd.Stdout = mux.Out()
-	cmd.Stderr = mux.Err()
+	cmd.Stdout, cmd.Stderr = d.Streamer.Writers()
 	if err := cmd.Run(); err != nil {
-		mux.Done(lsync.Result{Err: err})
-		return
+		return lsync.Result{}, err
 	}
 
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				mux.Done(lsync.Result{Err: DetectError(status.ExitStatus())})
-				return
+				return lsync.Result{}, DetectError(status.ExitStatus())
+
 			}
 		}
-		mux.Done(lsync.Result{Err: err})
-		return
+		return lsync.Result{}, err
 	}
 
-	mux.Done(lsync.Result{MetadataPath: mdDir})
+	return lsync.Result{MetadataPath: d.mdDir}, nil
 }
 
 type DetectError int

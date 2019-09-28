@@ -1,7 +1,7 @@
 package packfile
 
 import (
-	"github.com/sclevine/packfile/sync"
+	"github.com/sclevine/packfile/lsync"
 )
 
 const defaultShell = "/usr/bin/env bash"

@@ -1,7 +1,6 @@
 package packfile
 
 import (
-	"github.com/sclevine/packfile/sync"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -12,6 +11,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile/layer"
+	"github.com/sclevine/packfile/lsync"
 )
 
 type buildPlan struct {
@@ -44,7 +44,14 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	list := layer.NewList()
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
-		if lp.Provide == nil && lp.Require != nil {
+		if lp.Provide != nil && lp.Build != nil {
+			return xerrors.Errorf("layer '%s' has both provide and build sections", lp.Name)
+		}
+		//provide := lp.Provide
+		//if lp.Build != nil {
+		//	provide = lp.Build
+		//}
+		if lp.Build == nil && lp.Provide == nil && lp.Require != nil {
 			continue
 		}
 		mdDir, err := ioutil.TempDir("", "packfile."+lp.Name)
@@ -56,12 +63,18 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		if err := os.MkdirAll(layerDir, 0777); err != nil {
 			return err
 		}
-		list = list.Add(lp.Name, lp.Provide.WriteApp, lp.Provide.Links...)
-		go buildLayer(lp, list, plan.get(lp.Name), shell, mdDir, appDir, layerDir, isUsed(lp.Name, pf.Layers[i+1:]))
+		list = list.Add(&buildLayer{
+			Streamer: lsync.NewStreamer(),
+			layer: lp,
+			shell: shell,
+			mdDir: mdDir,
+			appDir: appDir,
+			layerDir: layerDir,
+		})
 	}
 	list.Run()
-	list.StreamAll(os.Stdout, os.Stderr)
-	for _, res := range list.WaitAll() {
+	list.Stream(os.Stdout, os.Stderr)
+	for _, res := range list.Wait() {
 		if IsFail(res.Err) {
 			continue
 		} else if err != nil {
@@ -83,18 +96,36 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	return nil
 }
 
-func isUsed(name string, layers []Layer) bool {
-	for _, l := range layers {
-		for _, link := range l.Provide.Links {
-			if link.Name == name {
-				return true
-			}
-		}
-	}
-	return false
+type buildLayer struct {
+	*lsync.Streamer
+	layer    *Layer
+	shell    string
+	mdDir    string
+	appDir   string
+	layerDir string
 }
 
-func buildLayer(l *Layer, requires []planRequire, shell, mdDir, appDir, layerDir string, used bool) {
+func (b *buildLayer) Name() string {
+	return b.layer.Name
+}
+
+func (b *buildLayer) Links() []lsync.Link {
+	build := b.layer.Build
+	if b.layer.Provide != nil {
+		build = b.layer.Provide
+	}
+	return build.Links
+}
+
+func (b *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
+
+}
+
+func (b *buildLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
+
+}
+
+func buildLayer2(l *Layer, requires []planRequire, shell, mdDir, appDir, layerDir string, used bool) {
 	if lp.Provide != nil {
 		if lp.Require == nil {
 			if err := writeMetadata(mdDir, lp.Version, lp.Metadata); err != nil {

@@ -74,3 +74,4 @@ metadata changes during provide are accessible in provide of layers that link to
 - the version from provide.test is always matched against the version from provide.test
 
 PROBLEM: no cache coherency guarantee for non-exported layers, so link-contents is a lie
+IDEA: use UUID stored in layer metadata to rep unique build ID
