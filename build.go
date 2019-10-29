@@ -47,10 +47,6 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		if lp.Provide != nil && lp.Build != nil {
 			return xerrors.Errorf("layer '%s' has both provide and build sections", lp.Name)
 		}
-		//provide := lp.Provide
-		//if lp.Build != nil {
-		//	provide = lp.Build
-		//}
 		if lp.Build == nil && lp.Provide == nil && lp.Require != nil {
 			continue
 		}
@@ -70,6 +66,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 			mdDir: mdDir,
 			appDir: appDir,
 			layerDir: layerDir,
+			requires: plan.get(lp.Name),
 		})
 	}
 	list.Run()
@@ -103,6 +100,7 @@ type buildLayer struct {
 	mdDir    string
 	appDir   string
 	layerDir string
+	requires []planRequire
 }
 
 func (b *buildLayer) Name() string {
@@ -110,11 +108,15 @@ func (b *buildLayer) Name() string {
 }
 
 func (b *buildLayer) Links() []lsync.Link {
-	build := b.layer.Build
+	return b.provide().Links
+}
+
+func (b *buildLayer) provide() *Provide {
+	provide := b.layer.Build
 	if b.layer.Provide != nil {
-		build = b.layer.Provide
+		provide = b.layer.Provide
 	}
-	return build.Links
+	return provide
 }
 
 func (b *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
@@ -125,24 +127,42 @@ func (b *buildLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
 
 }
 
-func buildLayer2(l *Layer, requires []planRequire, shell, mdDir, appDir, layerDir string, used bool) {
-	if lp.Provide != nil {
-		if lp.Require == nil {
-			if err := writeMetadata(mdDir, lp.Version, lp.Metadata); err != nil {
-				mux.Done(lsync.Result{Err: err})
-				return
+func (b *buildLayer) ReplaceMe(results []lsync.LinkResult) (lsync.Result, error) {
+	if b.provide() != nil {
+		if b.layer.Require == nil {
+			if err := writeMetadata(b.mdDir, b.layer.Version, b.layer.Metadata); err != nil {
+				return lsync.Result{}, err
 			}
 		}
-		for _, req := range requires {
-			if err := writeMetadata(mdDir, req.Version, req.Metadata); err != nil {
-				mux.Done(lsync.Result{Err: err})
-				return
+		for _, req := range b.requires {
+			if err := writeMetadata(b.mdDir, req.Version, req.Metadata); err != nil {
+				return lsync.Result{}, err
 			}
 		}
 	}
 
 	env := os.Environ()
-	env = append(env, "APP="+appDir)
+	env = append(env, "APP="+b.appDir)
+
+
+	for _, res := range results {
+		if res.Err != nil {
+			return xerrors.Errorf("failed to link '%s': %w", link.Name, res.Err)
+		}
+		if link.PathEnv != "" {
+			env = append(env, link.PathEnv+"="+res.LayerPath)
+		}
+		if link.VersionEnv != "" {
+			if version, err := ioutil.ReadFile(filepath.Join(res.MetadataPath, "version")); err == nil {
+				env = append(env, link.VersionEnv+"="+string(version))
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+		}
+		if link.MetadataEnv != "" {
+			env = append(env, link.MetadataEnv+"="+res.MetadataPath)
+		}
+	}
 
 	if err := mux.Wait(func(link lsync.Link, res lsync.Result) error {
 		if res.Err != nil {

@@ -8,13 +8,11 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/sclevine/packfile/lsync"
-
 	"github.com/BurntSushi/toml"
-
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile/layer"
+	"github.com/sclevine/packfile/lsync"
 )
 
 type planProvide struct {
@@ -59,10 +57,10 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 		defer os.RemoveAll(mdDir)
 		list = list.Add(&detectLayer{
 			Streamer: lsync.NewStreamer(),
-			layer: lp,
-			shell: shell,
-			mdDir: mdDir,
-			appDir: appDir,
+			layer:    lp,
+			shell:    shell,
+			mdDir:    mdDir,
+			appDir:   appDir,
 		})
 	}
 	list.Run()
@@ -140,7 +138,7 @@ func (d *detectLayer) Links() []lsync.Link {
 	return nil
 }
 
-func (d *detectLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
+func (d *detectLayer) Run(_ []lsync.LinkResult) (lsync.Result, error) {
 	if err := writeMetadata(d.mdDir, d.layer.Version, d.layer.Metadata); err != nil {
 		return lsync.Result{}, err
 	}

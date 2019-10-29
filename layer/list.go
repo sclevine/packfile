@@ -58,6 +58,8 @@ func (e *entry) run(prev, next []entry) {
 				return
 			}
 		}
+		// FIXME: maybe encode the special error state here, with new LinkResult field? NO IDEA WHAT PROBLEM WAS AHHHHH
+		// maybe just need to know if layers are rebuilt vs. cached for link-contents?
 		testRes = append(testRes, lsync.LinkResult{Link: e.links[i], Result: result})
 	}
 
