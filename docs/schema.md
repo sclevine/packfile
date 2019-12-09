@@ -40,7 +40,7 @@ name = "<layer/cache name reference>"
 path-as = "<env var name for path>"
 version-as = "<env var name for version>"
 metadata-as = "<env var name for metadata path>"
-for-test = false # provide the path/layer
+for-test = false # provide the path/layer for test
 link-contents = false # always rebuild on change
 link-version = false # rebuild on version change
 
@@ -76,4 +76,7 @@ path = "<path to script>"
 
 [[layers.build]]
 # same as [[layers.provide]]
+
+[[slices]]
+paths = []
 ```

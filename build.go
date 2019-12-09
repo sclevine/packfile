@@ -1,6 +1,7 @@
 package packfile
 
 import (
+	"bytes"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -16,6 +17,13 @@ import (
 
 type buildPlan struct {
 	Entries []planRequire `toml:"entries"`
+}
+
+type metadataTOML struct {
+	Launch   bool              `toml:"launch"`
+	Build    bool              `toml:"build"`
+	Cache    bool              `toml:"cache"`
+	Metadata map[string]string `toml:"metadata"` // TODO: accept arbitrary structure
 }
 
 func (b buildPlan) get(name string) []planRequire {
@@ -59,12 +67,19 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		if err := os.MkdirAll(layerDir, 0777); err != nil {
 			return err
 		}
+		var mdTOML metadataTOML
+		if _, err := toml.DecodeFile(filepath.Join(layersDir, lp.Name+".toml"), &mdTOML); err != nil {
+			if !xerrors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			mdTOML = metadataTOML{}
+		}
 		list = list.Add(&buildLayer{
 			Streamer: lsync.NewStreamer(),
-			layer: lp,
-			shell: shell,
-			mdDir: mdDir,
-			appDir: appDir,
+			layer:    lp,
+			shell:    shell,
+			mdDir:    mdDir,
+			appDir:   appDir,
 			layerDir: layerDir,
 			requires: plan.get(lp.Name),
 		})
@@ -97,6 +112,7 @@ type buildLayer struct {
 	*lsync.Streamer
 	layer    *Layer
 	shell    string
+	mdLast   *metadataTOML
 	mdDir    string
 	appDir   string
 	layerDir string
@@ -120,14 +136,6 @@ func (b *buildLayer) provide() *Provide {
 }
 
 func (b *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
-
-}
-
-func (b *buildLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
-
-}
-
-func (b *buildLayer) ReplaceMe(results []lsync.LinkResult) (lsync.Result, error) {
 	if b.provide() != nil {
 		if b.layer.Require == nil {
 			if err := writeMetadata(b.mdDir, b.layer.Version, b.layer.Metadata); err != nil {
@@ -142,79 +150,106 @@ func (b *buildLayer) ReplaceMe(results []lsync.LinkResult) (lsync.Result, error)
 	}
 
 	env := os.Environ()
-	env = append(env, "APP="+b.appDir)
-
+	env = append(env, "APP="+b.appDir, "MD="+b.mdDir)
 
 	for _, res := range results {
-		if res.Err != nil {
-			return xerrors.Errorf("failed to link '%s': %w", link.Name, res.Err)
+		if res.ForTest && res.PathEnv != "" {
+			env = append(env, res.PathEnv+"="+res.LayerPath)
 		}
-		if link.PathEnv != "" {
-			env = append(env, link.PathEnv+"="+res.LayerPath)
-		}
-		if link.VersionEnv != "" {
+		if res.VersionEnv != "" {
 			if version, err := ioutil.ReadFile(filepath.Join(res.MetadataPath, "version")); err == nil {
-				env = append(env, link.VersionEnv+"="+string(version))
+				env = append(env, res.VersionEnv+"="+string(version))
 			} else if !os.IsNotExist(err) {
-				return err
+				return lsync.Result{}, err
 			}
 		}
-		if link.MetadataEnv != "" {
-			env = append(env, link.MetadataEnv+"="+res.MetadataPath)
+		if res.MetadataEnv != "" {
+			env = append(env, res.MetadataEnv+"="+res.MetadataPath)
 		}
 	}
 
-	if err := mux.Wait(func(link lsync.Link, res lsync.Result) error {
-		if res.Err != nil {
-			return xerrors.Errorf("failed to link '%s': %w", link.Name, res.Err)
-		}
-		if link.PathEnv != "" {
-			env = append(env, link.PathEnv+"="+res.LayerPath)
-		}
-		if link.VersionEnv != "" {
-			if version, err := ioutil.ReadFile(filepath.Join(res.MetadataPath, "version")); err == nil {
-				env = append(env, link.VersionEnv+"="+string(version))
-			} else if !os.IsNotExist(err) {
-				return err
-			}
-		}
-		if link.MetadataEnv != "" {
-			env = append(env, link.MetadataEnv+"="+res.MetadataPath)
-		}
-		return nil
-	}); err != nil {
-		mux.Done(lsync.Result{Err: err})
-		return
-	}
-
-	env = append(env, "MD="+mdDir)
-	cmd, c, err := execCmd(&lp.Provide.Test, shell)
+	cmd, c, err := execCmd(&b.provide().Test, b.shell)
 	if err != nil {
-		mux.Done(lsync.Result{Err: err})
-		return
+		return lsync.Result{}, err
 	}
 	defer c.Close()
-	cmd.Dir = appDir
+	cmd.Dir = b.appDir
 	cmd.Env = env
-	cmd.Stdout = mux.Out()
-	cmd.Stderr = mux.Err()
-	if err := cmd.Run(); err != nil {
-		mux.Done(lsync.Result{Err: err})
-		return
-	}
-
+	cmd.Stdout, cmd.Stderr = b.Writers()
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				mux.Done(lsync.Result{Err: DetectError(status.ExitStatus())})
-				return
+				return lsync.Result{}, DetectError(status.ExitStatus())
 			}
 		}
-		mux.Done(lsync.Result{Err: err})
-		return
+		return lsync.Result{}, err
 	}
 
 	// compare versions, delete layer or skip
 
-	mux.Done(lsync.Result{LayerPath: layerDir, MetadataPath: mdDir})
+	if version, err := b.mdValue("version"); err == nil {
+		if version == b.mdLast.Metadata["version"] {
+			//return lsync.Result{}, layer.ErrNotNeeded
+		}
+	} else if !os.IsNotExist(err) {
+		return lsync.Result{}, err
+	}
+
+	return lsync.Result{
+		LayerPath:    b.layerDir,
+		MetadataPath: b.mdDir,
+	}, nil
+}
+
+func (b *buildLayer) mdValue(key string) (string, error) {
+	value, err := ioutil.ReadFile(filepath.Join(b.mdDir, key))
+	if err != nil {
+		return "", err
+	}
+	return string(bytes.TrimSpace(value)), err
+}
+
+func (b *buildLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
+	env := os.Environ()
+	env = append(env, "APP="+b.appDir, "MD="+b.mdDir, "LAYER="+b.layerDir)
+
+	for _, res := range results {
+		if res.PathEnv != "" {
+			env = append(env, res.PathEnv+"="+res.LayerPath)
+		}
+		if res.VersionEnv != "" {
+			if version, err := ioutil.ReadFile(filepath.Join(res.MetadataPath, "version")); err == nil {
+				env = append(env, res.VersionEnv+"="+string(version))
+			} else if !os.IsNotExist(err) {
+				return lsync.Result{}, err
+			}
+		}
+		if res.MetadataEnv != "" {
+			env = append(env, res.MetadataEnv+"="+res.MetadataPath)
+		}
+	}
+
+	cmd, c, err := execCmd(&b.provide().Exec, b.shell)
+	if err != nil {
+		return lsync.Result{}, err
+	}
+	defer c.Close()
+	cmd.Dir = b.appDir
+	cmd.Env = env
+	cmd.Stdout, cmd.Stderr = b.Writers()
+	if err := cmd.Run(); err != nil {
+		if err, ok := err.(*exec.ExitError); ok {
+			if status, ok := err.Sys().(syscall.WaitStatus); ok {
+				return lsync.Result{}, DetectError(status.ExitStatus())
+			}
+		}
+		return lsync.Result{}, err
+	}
+
+	// compare versions, delete layer or skip
+
+	return lsync.Result{
+		LayerPath:    b.layerDir,
+		MetadataPath: b.mdDir,
+	}, nil
 }

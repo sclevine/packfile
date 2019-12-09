@@ -125,13 +125,13 @@ func (m List) Add(layer Layer) List {
 	if lt, ok := layer.(LayerTester); ok {
 		e.testExec = lsync.NewExec(lt.Test)
 	} else {
-		e.testExec = lsync.NewExec(nil)
+		e.testExec = lsync.EmptyExec
 	}
 	return append(m, e)
 }
 
 func findAll(links []lsync.Link, layers []entry) ([]entry, error) {
-	var out []entry
+	out := make([]entry, 0, len(links))
 	for _, link := range links {
 		l, ok := find(link.Name, layers)
 		if !ok {

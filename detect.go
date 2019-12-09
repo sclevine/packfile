@@ -157,10 +157,6 @@ func (d *detectLayer) Run(_ []lsync.LinkResult) (lsync.Result, error) {
 	cmd.Env = env
 	cmd.Stdout, cmd.Stderr = d.Streamer.Writers()
 	if err := cmd.Run(); err != nil {
-		return lsync.Result{}, err
-	}
-
-	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
 				return lsync.Result{}, DetectError(status.ExitStatus())
