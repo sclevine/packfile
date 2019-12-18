@@ -15,6 +15,8 @@ var EmptyExec = NewExec(nil)
 type LinkResult struct {
 	Link
 	Result
+	NoChange    bool
+	SameVersion bool // FIXME: doesn't belong here!
 }
 
 type Link struct {

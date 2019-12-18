@@ -14,9 +14,12 @@ var (
 )
 
 func IsFail(err error) bool {
-	return err != nil &&
-		!xerrors.Is(err, ErrNotNeeded) &&
-		!xerrors.Is(err, ErrExists)
+	return err != nil && !IsNotChanged(err)
+}
+
+func IsNotChanged(err error) bool {
+	return xerrors.Is(err, ErrNotNeeded) ||
+		xerrors.Is(err, ErrExists)
 }
 
 type List []entry
@@ -27,11 +30,11 @@ type entry struct {
 	links    []lsync.Link
 	runExec  *lsync.Exec
 	testExec *lsync.Exec
-	built    *lsync.Bool
+	change   *lsync.Bool
 }
 
 func (e *entry) skip(err error) {
-	e.built.Set(false)
+	e.change.Set(false)
 	e.testExec.Skip(err)
 	e.runExec.Skip(err)
 }
@@ -51,6 +54,7 @@ func (e *entry) run(prev, next []entry) {
 			e.skip(xerrors.Errorf("test for link '%s' failed: %w", ll.name, err))
 			return
 		}
+		sameVersion := IsNotChanged(err)
 		if e.links[i].ForTest {
 			result, err = ll.runExec.Wait()
 			if IsFail(err) {
@@ -58,14 +62,17 @@ func (e *entry) run(prev, next []entry) {
 				return
 			}
 		}
-		// FIXME: maybe encode the special error state here, with new LinkResult field? NO IDEA WHAT PROBLEM WAS AHHHHH
-		// maybe just need to know if layers are rebuilt vs. cached for link-contents?
-		testRes = append(testRes, lsync.LinkResult{Link: e.links[i], Result: result})
+		testRes = append(testRes, lsync.LinkResult{
+			Link:        e.links[i],
+			Result:      result,
+			NoChange:    !ll.change.Wait(),
+			SameVersion: sameVersion,
+		})
 	}
 
 	result, err := e.testExec.Run(testRes)
 	if err != nil && err != lsync.ErrEmpty && !(xerrors.Is(err, ErrNotNeeded) && used(e.name, next)) {
-		e.built.Set(false)
+		e.change.Set(false)
 		if IsFail(err) {
 			e.runExec.Skip(xerrors.Errorf("test for '%s' failed: %w", e.name, err))
 			return
@@ -73,9 +80,10 @@ func (e *entry) run(prev, next []entry) {
 		e.runExec.Set(result, err)
 		return
 	}
-	wait(e.name, next) // before proceeding to run, wait for further tests to finish (also: used doesn't wait for all links)
+	// before proceeding to run, wait for further tests to finish (also: used doesn't wait for all links)
+	wait(e.name, next)
 
-	e.built.Set(true)
+	e.change.Set(true) // should this go before wait? probably not because recursion?
 	var runRes []lsync.LinkResult
 	for i, ll := range linkLayers {
 		result, err := ll.runExec.Wait()
@@ -83,7 +91,12 @@ func (e *entry) run(prev, next []entry) {
 			e.runExec.Skip(xerrors.Errorf("link '%s' failed: %w", e.name, err))
 			return
 		}
-		runRes = append(runRes, lsync.LinkResult{Link: e.links[i], Result: result})
+		runRes = append(runRes, lsync.LinkResult{
+			Link:        e.links[i],
+			Result:      result,
+			NoChange:    !ll.change.Wait(),
+			SameVersion: IsNotChanged(err),
+		})
 	}
 	e.runExec.Run(runRes)
 }
@@ -120,7 +133,7 @@ func (m List) Add(layer Layer) List {
 		name:     layer.Name(),
 		links:    layer.Links(),
 		runExec:  lsync.NewExec(layer.Run),
-		built:    lsync.NewBool(),
+		change:   lsync.NewBool(),
 	}
 	if lt, ok := layer.(LayerTester); ok {
 		e.testExec = lsync.NewExec(lt.Test)
@@ -155,7 +168,7 @@ func used(name string, layers []entry) bool {
 	for _, layer := range layers {
 		for _, link := range layer.links {
 			if link.Name == name {
-				return link.ForTest || layer.built.Wait()
+				return link.ForTest || layer.change.Wait()
 			}
 		}
 	}
@@ -166,7 +179,7 @@ func wait(name string, layers []entry) {
 	for _, layer := range layers {
 		for _, link := range layer.links {
 			if link.Name == name && !link.ForTest {
-				layer.built.Wait()
+				layer.change.Wait()
 			}
 		}
 	}

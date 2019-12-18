@@ -16,6 +16,7 @@ env always loaded (clear-env = false)
 - require gets: APP (ro), MD (rw) (wd: APP)
 - provide.test gets: APP (rw), MD (rw) (wd: APP) | Link: MD_AS (ro), PATH_AS (ro) | Cache: PATH_AS (rw)
 - provide gets: APP (rw), LAYER (rw), MD (rw) (wd: APP) | Link: MD_AS (ro), PATH_AS (ro) | Cache: PATH_AS (rw)
+- cache.setup gets: APP (ro), CACHE (rw) (wd: APP)
 
 - provide-only: provide in build plan
 - require-only: require in build plan
