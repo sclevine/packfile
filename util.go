@@ -11,7 +11,7 @@ import (
 )
 
 func IsFail(err error) bool {
-	var e DetectError
+	var e CodeError
 	if xerrors.As(err, &e) {
 		return e == 100
 	}
@@ -19,7 +19,7 @@ func IsFail(err error) bool {
 }
 
 func IsError(err error) bool {
-	var e DetectError
+	var e CodeError
 	if xerrors.As(err, &e) {
 		return e != 100
 	}

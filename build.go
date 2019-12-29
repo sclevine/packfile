@@ -50,8 +50,13 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	}
 	list := layer.NewList()
 	for i := range pf.Caches {
-		lp := &pf.Caches[i]
-
+		list = list.Add(&cacheLayer{
+			Streamer: lsync.NewStreamer(),
+			cache:    &pf.Caches[i],
+			shell:    shell,
+			appDir:   appDir,
+			cacheDir: filepath.Join(layersDir, pf.Caches[i].Name),
+		})
 	}
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
@@ -78,6 +83,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 			Streamer: lsync.NewStreamer(),
 			layer:    lp,
 			shell:    shell,
+			mdLast:   &mdTOML,
 			mdDir:    mdDir,
 			appDir:   appDir,
 			layerDir: layerDir,
@@ -86,26 +92,16 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	}
 	list.Run()
 	list.Stream(os.Stdout, os.Stderr)
-	for _, res := range list.Wait() {
-		if IsFail(res.Err) {
-			continue
-		} else if err != nil {
-			return xerrors.Errorf("error for layer '%s': %w", res.Name, err)
-		}
-		req, err := readRequire(res.Name, res.MetadataPath)
-		if err != nil {
-			return xerrors.Errorf("invalid metadata for layer '%s': %w", res.Name, err)
-		}
-		requires = append(requires, req)
+	requires, err := readRequires(list)
+	if err != nil {
+		return err
 	}
 	f, err := os.Create(planPath)
 	if err != nil {
 		return err
 	}
-	if err := toml.NewEncoder(f).Encode(planSections{requires, provides}); err != nil {
-		return err
-	}
-	return nil
+	defer f.Close()
+	return toml.NewEncoder(f).Encode(buildPlan{requires})
 }
 
 type buildLayer struct {
@@ -167,6 +163,11 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 			env = append(env, res.MetadataEnv+"="+res.MetadataPath)
 		}
 	}
+	if l.provide() == nil || l.provide().Test == nil {
+		return lsync.Result{
+			MetadataPath: l.mdDir,
+		}, nil
+	}
 
 	cmd, c, err := execCmd(&l.provide().Test.Exec, l.shell)
 	if err != nil {
@@ -179,7 +180,7 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				return lsync.Result{}, DetectError(status.ExitStatus())
+				return lsync.Result{}, CodeError(status.ExitStatus())
 			}
 		}
 		return lsync.Result{}, err
@@ -188,6 +189,9 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 	for _, res := range results {
 		if (res.LinkContents && !res.NoChange) ||
 			(res.LinkVersion && !res.SameVersion) {
+			if err := os.RemoveAll(l.layerDir); err != nil {
+				return lsync.Result{}, err
+			}
 			return lsync.Result{
 				MetadataPath: l.mdDir,
 			}, nil
@@ -197,6 +201,11 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 	if version, err := l.mdValue("version"); err == nil {
 		if version == l.mdLast.Metadata["version"] {
 			if _, err := os.Stat(l.layerDir); xerrors.Is(err, os.ErrNotExist) {
+				if l.layer.Expose {
+					return lsync.Result{
+						MetadataPath: l.mdDir,
+					}, nil
+				}
 				return lsync.Result{
 					MetadataPath: l.mdDir,
 				}, layer.ErrNotNeeded
@@ -248,6 +257,12 @@ func (l *buildLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
 	if err := os.MkdirAll(l.layerDir, 0777); err != nil {
 		return lsync.Result{}, err
 	}
+	if l.provide() == nil {
+		return lsync.Result{
+			LayerPath:    l.layerDir,
+			MetadataPath: l.mdDir,
+		}, nil
+	}
 	cmd, c, err := execCmd(&l.provide().Exec, l.shell)
 	if err != nil {
 		return lsync.Result{}, err
@@ -259,7 +274,7 @@ func (l *buildLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				return lsync.Result{}, DetectError(status.ExitStatus())
+				return lsync.Result{}, CodeError(status.ExitStatus())
 			}
 		}
 		return lsync.Result{}, err
@@ -286,6 +301,11 @@ func (l *cacheLayer) Run(_ []lsync.LinkResult) (lsync.Result, error) {
 	if err := os.MkdirAll(l.cacheDir, 0777); err != nil {
 		return lsync.Result{}, err
 	}
+	if l.cache.Setup == nil {
+		return lsync.Result{
+			LayerPath: l.cacheDir,
+		}, nil
+	}
 	cmd, c, err := execCmd(l.cache.Setup, l.shell)
 	if err != nil {
 		return lsync.Result{}, err
@@ -297,7 +317,7 @@ func (l *cacheLayer) Run(_ []lsync.LinkResult) (lsync.Result, error) {
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				return lsync.Result{}, DetectError(status.ExitStatus())
+				return lsync.Result{}, CodeError(status.ExitStatus())
 			}
 		}
 		return lsync.Result{}, err
@@ -306,4 +326,12 @@ func (l *cacheLayer) Run(_ []lsync.LinkResult) (lsync.Result, error) {
 	return lsync.Result{
 		LayerPath: l.cacheDir,
 	}, nil
+}
+
+func (l *cacheLayer) Name() string {
+	return l.cache.Name
+}
+
+func (l *cacheLayer) Links() []lsync.Link {
+	return nil
 }

@@ -31,7 +31,7 @@ func main() {
 		if len(os.Args) != 4 {
 			log.Fatal("Error: build requires three arguments")
 		}
-		if err := pf.Build(os.Args[1], os.Args[2], os.Args[3]); err != nil {
+		if err := packfile.Build(&pf, os.Args[1], os.Args[2], os.Args[3]); err != nil {
 			log.Fatalf("Error: %s", err)
 		}
 	default:

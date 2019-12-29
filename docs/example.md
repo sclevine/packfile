@@ -149,9 +149,9 @@ export = true
 
 [layers.build]
 inline = """
-mkdir bin
-echo 'while true; do cat index.tcp | nc -l 8080; done' > bin/run
-chmod +x bin/run
+mkdir "$LAYER/bin"
+echo 'while true; do cat index.tcp | nc -l 8080; done' > "$LAYER/bin/run"
+chmod +x "$LAYER/bin/run"
 """
 ```
 

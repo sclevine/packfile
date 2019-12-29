@@ -60,7 +60,7 @@ write-app layers are always re-built and run serially
 PROBLEM: some layers need other layers during provide.test, but it forces unnecessary rebuilds in export chains
 SOLUTION: flag to add layer path to provide.test
 
-PROBLEM: easier to send BOM metadata to linked layers, but not always available when layer is not regenerated
+PROBLEM: easier to send BOM metadata to linked layers, but not always available when layer is not regenerated (for both missing and cached layers)
 SOLUTION: replace metadata with saved metadata
 
 metadata changes during provide are accessible in provide of layers that link to it

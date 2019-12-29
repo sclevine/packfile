@@ -39,7 +39,6 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	if s := pf.Config.Shell; s != "" {
 		shell = s
 	}
-	var requires []planRequire
 	var provides []planProvide
 	list := layer.NewList()
 	for i := range pf.Layers {
@@ -65,22 +64,15 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	}
 	list.Run()
 	list.Stream(os.Stdout, os.Stderr)
-	for _, res := range list.Wait() {
-		if IsFail(res.Err) {
-			continue
-		} else if err != nil {
-			return xerrors.Errorf("error for layer '%s': %w", res.Name, err)
-		}
-		req, err := readRequire(res.Name, res.MetadataPath)
-		if err != nil {
-			return xerrors.Errorf("invalid metadata for layer '%s': %w", res.Name, err)
-		}
-		requires = append(requires, req)
+	requires, err := readRequires(list)
+	if err != nil {
+		return err
 	}
 	f, err := os.Create(planPath)
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 	return toml.NewEncoder(f).Encode(planSections{requires, provides})
 }
 
@@ -98,6 +90,23 @@ func eachFile(dir string, fn func(name, path string) error) error {
 		}
 	}
 	return nil
+}
+
+func readRequires(list layer.List) ([]planRequire, error) {
+	var requires []planRequire
+	for _, res := range list.Wait() {
+		if IsFail(res.Err) {
+			continue
+		} else if res.Err != nil {
+			return nil, xerrors.Errorf("error for layer '%s': %w", res.Name, res.Err)
+		}
+		req, err := readRequire(res.Name, res.MetadataPath)
+		if err != nil {
+			return nil, xerrors.Errorf("invalid metadata for layer '%s': %w", res.Name, err)
+		}
+		requires = append(requires, req)
+	}
+	return requires, nil
 }
 
 func readRequire(name, path string) (planRequire, error) {
@@ -159,7 +168,7 @@ func (d *detectLayer) Run(_ []lsync.LinkResult) (lsync.Result, error) {
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				return lsync.Result{}, DetectError(status.ExitStatus())
+				return lsync.Result{}, CodeError(status.ExitStatus())
 
 			}
 		}
@@ -169,8 +178,8 @@ func (d *detectLayer) Run(_ []lsync.LinkResult) (lsync.Result, error) {
 	return lsync.Result{MetadataPath: d.mdDir}, nil
 }
 
-type DetectError int
+type CodeError int
 
-func (e DetectError) Error() string {
-	return fmt.Sprintf("detect failed with code %d", e)
+func (e CodeError) Error() string {
+	return fmt.Sprintf("failed with code %d", e)
 }
