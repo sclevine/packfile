@@ -64,7 +64,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	}
 	list.Run()
 	list.Stream(os.Stdout, os.Stderr)
-	requires, err := readRequires(list)
+	requires, err := readRequires(list.Wait())
 	if err != nil {
 		return err
 	}
@@ -92,9 +92,9 @@ func eachFile(dir string, fn func(name, path string) error) error {
 	return nil
 }
 
-func readRequires(list layer.List) ([]planRequire, error) {
+func readRequires(results []layer.FinalResult) ([]planRequire, error) {
 	var requires []planRequire
-	for _, res := range list.Wait() {
+	for _, res := range results {
 		if IsFail(res.Err) {
 			continue
 		} else if res.Err != nil {

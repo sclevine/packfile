@@ -19,10 +19,12 @@ type buildPlan struct {
 }
 
 type metadataTOML struct {
-	Launch   bool              `toml:"launch"`
-	Build    bool              `toml:"build"`
-	Cache    bool              `toml:"cache"`
-	Metadata map[string]string `toml:"metadata"` // TODO: accept arbitrary structure
+	Launch   bool `toml:"launch"`
+	Build    bool `toml:"build"`
+	Cache    bool `toml:"cache"`
+	Metadata struct {
+		Version string `toml:"version"`
+	} `toml:"metadata"`
 }
 
 func (b buildPlan) get(name string) []planRequire {
@@ -72,6 +74,8 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		}
 		defer os.RemoveAll(mdDir)
 		layerDir := filepath.Join(layersDir, lp.Name)
+		// NEW IDEA: push this into method used by Test() to both set/get test-version
+		// Also: make VERSION special (always the test version, even after ForTest)
 		var mdTOML metadataTOML
 		if _, err := toml.DecodeFile(filepath.Join(layersDir, lp.Name+".toml"), &mdTOML); err != nil {
 			if !xerrors.Is(err, os.ErrNotExist) {
@@ -80,19 +84,19 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 			mdTOML = metadataTOML{}
 		}
 		list = list.Add(&buildLayer{
-			Streamer: lsync.NewStreamer(),
-			layer:    lp,
-			shell:    shell,
-			mdLast:   &mdTOML,
-			mdDir:    mdDir,
-			appDir:   appDir,
-			layerDir: layerDir,
-			requires: plan.get(lp.Name),
+			Streamer:    lsync.NewStreamer(),
+			layer:       lp,
+			shell:       shell,
+			lastVersion: mdTOML.Metadata.Version,
+			mdDir:       mdDir,
+			appDir:      appDir,
+			layerDir:    layerDir,
+			requires:    plan.get(lp.Name),
 		})
 	}
 	list.Run()
 	list.Stream(os.Stdout, os.Stderr)
-	requires, err := readRequires(list)
+	requires, err := readRequires(list.Wait())
 	if err != nil {
 		return err
 	}
@@ -106,13 +110,13 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 
 type buildLayer struct {
 	*lsync.Streamer
-	layer    *Layer
-	shell    string
-	mdLast   *metadataTOML
-	mdDir    string
-	appDir   string
-	layerDir string
-	requires []planRequire
+	layer       *Layer
+	shell       string
+	lastVersion string
+	mdDir       string
+	appDir      string
+	layerDir    string
+	requires    []planRequire
 }
 
 func (l *buildLayer) Name() string {
@@ -199,7 +203,7 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 	}
 
 	if version, err := l.mdValue("version"); err == nil {
-		if version == l.mdLast.Metadata["version"] {
+		if version == l.lastVersion {
 			if _, err := os.Stat(l.layerDir); xerrors.Is(err, os.ErrNotExist) {
 				if l.layer.Expose {
 					return lsync.Result{
