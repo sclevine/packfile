@@ -3,10 +3,12 @@ package packfile
 import (
 	"io"
 	"io/ioutil"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
 )
 
@@ -24,6 +26,15 @@ func IsError(err error) bool {
 		return e != 100
 	}
 	return false
+}
+
+func writeTOML(lt interface{}, path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return toml.NewEncoder(f).Encode(lt)
 }
 
 func writeMetadata(path, version string, metadata map[string]string) error {

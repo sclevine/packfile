@@ -18,15 +18,6 @@ type buildPlan struct {
 	Entries []planRequire `toml:"entries"`
 }
 
-type layerTOML struct {
-	Launch   bool `toml:"launch"`
-	Build    bool `toml:"build"`
-	Cache    bool `toml:"cache"`
-	Metadata struct {
-		Version string `toml:"version"`
-	} `toml:"metadata"`
-}
-
 func (b buildPlan) get(name string) []planRequire {
 	var out []planRequire
 	for _, e := range b.Entries {
@@ -35,6 +26,15 @@ func (b buildPlan) get(name string) []planRequire {
 		}
 	}
 	return out
+}
+
+type layerTOML struct {
+	Launch   bool `toml:"launch"`
+	Build    bool `toml:"build"`
+	Cache    bool `toml:"cache"`
+	Metadata struct {
+		Version string `toml:"version"`
+	} `toml:"metadata"`
 }
 
 func readLayerTOML(path string) (layerTOML, error) {
@@ -48,13 +48,8 @@ func readLayerTOML(path string) (layerTOML, error) {
 	return out, nil
 }
 
-func writeLayerTOML(path string, lt layerTOML) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return toml.NewEncoder(f).Encode(lt)
+type launchTOML struct {
+	Processes []Process `toml:"processes"`
 }
 
 func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
@@ -107,6 +102,11 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	}
 	list.Run()
 	list.Stream(os.Stdout, os.Stderr)
+	if err := writeTOML(launchTOML{
+		Processes: pf.Processes,
+	}, filepath.Join(layersDir, "launch.toml")); err != nil {
+		return err
+	}
 	requires, err := readRequires(list.Wait())
 	if err != nil {
 		return err
@@ -121,12 +121,12 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 
 type buildLayer struct {
 	*lsync.Streamer
-	layer       *Layer
-	shell       string
-	mdDir       string
-	appDir      string
-	layerDir    string
-	requires    []planRequire
+	layer    *Layer
+	shell    string
+	mdDir    string
+	appDir   string
+	layerDir string
+	requires []planRequire
 }
 
 func (l *buildLayer) Name() string {
@@ -220,7 +220,7 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 	} else {
 		return lsync.Result{}, err
 	}
-	if err := writeLayerTOML(layerTOMLPath, layerTOML); err != nil {
+	if err := writeTOML(layerTOML, layerTOMLPath); err != nil {
 		return lsync.Result{}, err
 	}
 
