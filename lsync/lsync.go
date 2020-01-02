@@ -34,6 +34,10 @@ type Result struct {
 	MetadataPath string
 }
 
+func (r Result) LayerTOML() string {
+	return r.LayerPath + ".toml"
+}
+
 type LayerFunc func(lrs []LinkResult) (Result, error)
 
 type Exec struct {

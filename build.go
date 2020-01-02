@@ -167,12 +167,11 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 			env = append(env, res.PathEnv+"="+res.LayerPath)
 		}
 		if res.VersionEnv != "" {
-			// FIXME: make VERSION special (always the test version, even after ForTest), by reading TOML(?)
-			if version, err := ioutil.ReadFile(filepath.Join(res.MetadataPath, "version")); err == nil {
-				env = append(env, res.VersionEnv+"="+string(version))
-			} else if !os.IsNotExist(err) {
+			lt, err := readLayerTOML(res.LayerTOML())
+			if err != nil {
 				return lsync.Result{}, err
 			}
+			env = append(env, res.VersionEnv+"="+lt.Metadata.Version)
 		}
 		if res.MetadataEnv != "" {
 			env = append(env, res.MetadataEnv+"="+res.MetadataPath)
@@ -279,11 +278,11 @@ func (l *buildLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
 			env = append(env, res.PathEnv+"="+res.LayerPath)
 		}
 		if res.VersionEnv != "" {
-			if version, err := ioutil.ReadFile(filepath.Join(res.MetadataPath, "version")); err == nil {
-				env = append(env, res.VersionEnv+"="+string(version))
-			} else if !os.IsNotExist(err) {
+			lt, err := readLayerTOML(res.LayerTOML())
+			if err != nil {
 				return lsync.Result{}, err
 			}
+			env = append(env, res.VersionEnv+"="+lt.Metadata.Version)
 		}
 		if res.MetadataEnv != "" {
 			env = append(env, res.MetadataEnv+"="+res.MetadataPath)
