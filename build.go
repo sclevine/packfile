@@ -18,7 +18,7 @@ type buildPlan struct {
 	Entries []planRequire `toml:"entries"`
 }
 
-type metadataTOML struct {
+type layerTOML struct {
 	Launch   bool `toml:"launch"`
 	Build    bool `toml:"build"`
 	Cache    bool `toml:"cache"`
@@ -35,6 +35,26 @@ func (b buildPlan) get(name string) []planRequire {
 		}
 	}
 	return out
+}
+
+func readLayerTOML(path string) (layerTOML, error) {
+	var out layerTOML
+	if _, err := toml.DecodeFile(path, &out); err != nil {
+		if !xerrors.Is(err, os.ErrNotExist) {
+			return layerTOML{}, err
+		}
+		out = layerTOML{}
+	}
+	return out, nil
+}
+
+func writeLayerTOML(path string, lt layerTOML) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return toml.NewEncoder(f).Encode(lt)
 }
 
 func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
@@ -68,30 +88,21 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		if lp.Build == nil && lp.Provide == nil && lp.Require != nil {
 			continue
 		}
+		// FIXME: move metadata dir into individual layer Init/Cleanup methods
 		mdDir, err := ioutil.TempDir("", "packfile."+lp.Name)
 		if err != nil {
 			return err
 		}
 		defer os.RemoveAll(mdDir)
 		layerDir := filepath.Join(layersDir, lp.Name)
-		// NEW IDEA: push this into method used by Test() to both set/get test-version
-		// Also: make VERSION special (always the test version, even after ForTest)
-		var mdTOML metadataTOML
-		if _, err := toml.DecodeFile(filepath.Join(layersDir, lp.Name+".toml"), &mdTOML); err != nil {
-			if !xerrors.Is(err, os.ErrNotExist) {
-				return err
-			}
-			mdTOML = metadataTOML{}
-		}
 		list = list.Add(&buildLayer{
-			Streamer:    lsync.NewStreamer(),
-			layer:       lp,
-			shell:       shell,
-			lastVersion: mdTOML.Metadata.Version,
-			mdDir:       mdDir,
-			appDir:      appDir,
-			layerDir:    layerDir,
-			requires:    plan.get(lp.Name),
+			Streamer: lsync.NewStreamer(),
+			layer:    lp,
+			shell:    shell,
+			mdDir:    mdDir,
+			appDir:   appDir,
+			layerDir: layerDir,
+			requires: plan.get(lp.Name),
 		})
 	}
 	list.Run()
@@ -112,7 +123,6 @@ type buildLayer struct {
 	*lsync.Streamer
 	layer       *Layer
 	shell       string
-	lastVersion string
 	mdDir       string
 	appDir      string
 	layerDir    string
@@ -157,6 +167,7 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 			env = append(env, res.PathEnv+"="+res.LayerPath)
 		}
 		if res.VersionEnv != "" {
+			// FIXME: make VERSION special (always the test version, even after ForTest), by reading TOML(?)
 			if version, err := ioutil.ReadFile(filepath.Join(res.MetadataPath, "version")); err == nil {
 				env = append(env, res.VersionEnv+"="+string(version))
 			} else if !os.IsNotExist(err) {
@@ -190,6 +201,30 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 		return lsync.Result{}, err
 	}
 
+	layerTOMLPath := l.layerDir + ".toml"
+	layerTOML, err := readLayerTOML(layerTOMLPath)
+	if err != nil {
+		return lsync.Result{}, err
+	}
+	layerTOML.Cache = l.layer.Store
+	layerTOML.Build = l.layer.Expose
+	layerTOML.Launch = l.layer.Export
+
+	skipVersion := false
+	oldVersion := layerTOML.Metadata.Version
+	newVersion, err := l.mdValue("version")
+	if err == nil {
+		layerTOML.Metadata.Version = newVersion
+	} else if os.IsNotExist(err) {
+		layerTOML.Metadata.Version = ""
+		skipVersion = true
+	} else {
+		return lsync.Result{}, err
+	}
+	if err := writeLayerTOML(layerTOMLPath, layerTOML); err != nil {
+		return lsync.Result{}, err
+	}
+
 	for _, res := range results {
 		if (res.LinkContents && !res.NoChange) ||
 			(res.LinkVersion && !res.SameVersion) {
@@ -202,25 +237,21 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 		}
 	}
 
-	if version, err := l.mdValue("version"); err == nil {
-		if version == l.lastVersion {
-			if _, err := os.Stat(l.layerDir); xerrors.Is(err, os.ErrNotExist) {
-				if l.layer.Expose {
-					return lsync.Result{
-						MetadataPath: l.mdDir,
-					}, nil
-				}
+	if !skipVersion && newVersion == oldVersion {
+		if _, err := os.Stat(l.layerDir); xerrors.Is(err, os.ErrNotExist) {
+			if l.layer.Expose || l.layer.Store {
 				return lsync.Result{
 					MetadataPath: l.mdDir,
-				}, layer.ErrNotNeeded
+				}, nil
 			}
 			return lsync.Result{
-				LayerPath:    l.layerDir,
 				MetadataPath: l.mdDir,
-			}, layer.ErrExists
+			}, layer.ErrNotNeeded
 		}
-	} else if !os.IsNotExist(err) {
-		return lsync.Result{}, err
+		return lsync.Result{
+			LayerPath:    l.layerDir,
+			MetadataPath: l.mdDir,
+		}, layer.ErrExists
 	}
 	if err := os.RemoveAll(l.layerDir); err != nil {
 		return lsync.Result{}, err
@@ -231,6 +262,7 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 }
 
 func (l *buildLayer) mdValue(key string) (string, error) {
+	// FIXME: need to account for empty version file matching missing layer TOML
 	value, err := ioutil.ReadFile(filepath.Join(l.mdDir, key))
 	if err != nil {
 		return "", err
