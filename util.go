@@ -63,6 +63,7 @@ func execCmd(e *Exec, shell string) (*exec.Cmd, io.Closer, error) {
 	}
 	var args []string
 	if len(parts) > 1 {
+		shell = parts[0]
 		args = append(args, parts[1])
 	}
 	if e.Inline != "" {
@@ -70,10 +71,11 @@ func execCmd(e *Exec, shell string) (*exec.Cmd, io.Closer, error) {
 		if err != nil {
 			return nil, nil, err
 		}
+		defer f.Close()
 		if _, err := f.WriteString(e.Inline); err != nil {
 			return nil, nil, err
 		}
-		return exec.Command(shell, append(args, f.Name())...), f, nil
+		return exec.Command(shell, append(args, f.Name())...), rmCloser{f.Name()}, nil
 	}
 
 	if e.Path == "" {
@@ -82,6 +84,10 @@ func execCmd(e *Exec, shell string) (*exec.Cmd, io.Closer, error) {
 
 	return exec.Command(shell, append(args, e.Path)...), nopCloser{}, nil
 }
+
+type rmCloser struct{ path string }
+
+func (c rmCloser) Close() error { return os.Remove(c.path) }
 
 type nopCloser struct{}
 

@@ -1,6 +1,7 @@
 package layer
 
 import (
+	"fmt"
 	"io"
 
 	"golang.org/x/xerrors"
@@ -49,12 +50,15 @@ func (e *entry) run(prev, next []entry) {
 	}
 	var testRes []lsync.LinkResult
 	for i, ll := range linkLayers {
+		fmt.Printf("before link wait %s, link %s\n", e.name, ll.name)
 		result, err := ll.testExec.Wait()
 		if IsFail(err) {
 			e.skip(xerrors.Errorf("test for link '%s' failed: %w", ll.name, err))
 			return
 		}
+		preserved := xerrors.Is(err, ErrExists)
 		sameVersion := IsNotChanged(err)
+
 		if e.links[i].ForTest {
 			result, err = ll.runExec.Wait()
 			if IsFail(err) {
@@ -65,7 +69,10 @@ func (e *entry) run(prev, next []entry) {
 		testRes = append(testRes, lsync.LinkResult{
 			Link:        e.links[i],
 			Result:      result,
-			NoChange:    !ll.change.Wait(),
+			//NoChange:    !ll.change.Wait(), // FIXME: deadlock, hard problem? can't just use test? - maybe okay to use test actually!
+			//FIXME: new problem: what's the difference between these cases?
+			//FIXME: problem when both are not needed?
+			Preserved:   preserved,
 			SameVersion: sameVersion,
 		})
 	}
@@ -94,7 +101,7 @@ func (e *entry) run(prev, next []entry) {
 		runRes = append(runRes, lsync.LinkResult{
 			Link:        e.links[i],
 			Result:      result,
-			NoChange:    !ll.change.Wait(),
+			Preserved:   xerrors.Is(err, ErrExists),
 			SameVersion: IsNotChanged(err),
 		})
 	}
@@ -118,7 +125,7 @@ type Layer interface {
 	Run(results []lsync.LinkResult) (lsync.Result, error)
 }
 
-type LayerTester interface {
+type Tester interface {
 	Test(results []lsync.LinkResult) (lsync.Result, error)
 }
 
@@ -127,7 +134,7 @@ type Streamer interface {
 	Close()
 }
 
-func (m List) Add(layer Layer) List {
+func (l List) Add(layer Layer) List {
 	e := entry{
 		Streamer: layer,
 		name:     layer.Name(),
@@ -135,12 +142,12 @@ func (m List) Add(layer Layer) List {
 		runExec:  lsync.NewExec(layer.Run),
 		change:   lsync.NewBool(),
 	}
-	if lt, ok := layer.(LayerTester); ok {
+	if lt, ok := layer.(Tester); ok {
 		e.testExec = lsync.NewExec(lt.Test)
 	} else {
 		e.testExec = lsync.EmptyExec
 	}
-	return append(m, e)
+	return append(l, e)
 }
 
 func findAll(links []lsync.Link, layers []entry) ([]entry, error) {
@@ -185,23 +192,23 @@ func wait(name string, layers []entry) {
 	}
 }
 
-func (m List) Wait() []FinalResult {
+func (l List) Wait() []FinalResult {
 	var out []FinalResult
-	for _, layer := range m {
-		result, err := layer.runExec.Wait()
-		out = append(out, FinalResult{layer.name, err, result})
+	for i := range l {
+		result, err := l[i].runExec.Wait()
+		out = append(out, FinalResult{l[i].name, err, result})
 	}
 	return out
 }
 
-func (m List) Stream(stdout, stderr io.Writer) {
-	for _, layer := range m {
-		layer.Stream(stdout, stderr)
+func (l List) Stream(stdout, stderr io.Writer) {
+	for i := range l {
+		l[i].Stream(stdout, stderr)
 	}
 }
 
-func (m List) Run() {
-	for i, layer := range m {
-		go layer.run(m[:i], m[i+1:])
+func (l List) Run() {
+	for i := range l {
+		go l[i].run(l[:i], l[i+1:])
 	}
 }

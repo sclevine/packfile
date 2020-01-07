@@ -225,7 +225,7 @@ func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
 	}
 
 	for _, res := range results {
-		if (res.LinkContents && !res.NoChange) ||
+		if (res.LinkContents && !res.Preserved) ||
 			(res.LinkVersion && !res.SameVersion) {
 			if err := os.RemoveAll(l.layerDir); err != nil {
 				return lsync.Result{}, err
