@@ -107,20 +107,20 @@ func (l *Bool) Wait() bool {
 	return l.res
 }
 
-type lock struct {
+type Lock struct {
 	n   int
 	c   chan struct{}
 	mut sync.Mutex
 }
 
-func (l *lock) claim() {
+func (l *Lock) claim() {
 	l.mut.Lock()
 	l.n++
 	l.mut.Unlock()
 }
 
 // panics if called more times than claim
-func (l *lock) release() {
+func (l *Lock) release() {
 	l.mut.Lock()
 	l.n--
 	if l.n <= 0 {
@@ -129,12 +129,12 @@ func (l *lock) release() {
 	l.mut.Unlock()
 }
 
-func (l *lock) wait() <-chan struct{} {
+func (l *Lock) wait() <-chan struct{} {
 	return l.c
 }
 
-func newLock() lock {
-	return lock{
+func NewLock() Lock {
+	return Lock{
 		c: make(chan struct{}),
 	}
 }
@@ -147,11 +147,13 @@ const (
 )
 
 type Resolver struct {
+	links   []Linc
 	matched bool
 	present bool
 	changed bool
 	c       chan Event
 	done    chan struct{}
+	lock    *Lock
 }
 
 type Linc struct {
@@ -162,85 +164,79 @@ type Linc struct {
 	done     chan struct{}
 }
 
-func (l *Linc) send(ev Event) {
+func (r *Resolver) send(link Linc, ev Event) {
+	r.lock.claim()
 	select {
-	case l.c <- ev:
-	case <-l.done:
+	case link.c <- ev:
+	case <-link.done:
+		r.lock.release()
 	}
 }
 
-func NewResolver(matched, present bool) *Resolver {
+func NewResolver(lock *Lock, links []Linc, matched, present bool) *Resolver {
 	return &Resolver{
+		links:   links,
 		matched: matched,
 		present: present,
 		c:       make(chan Event),
 		done:    make(chan struct{}),
+		lock:    lock,
 	}
 }
 
-func (r *Resolver) Wait(links []Linc) (present, changed bool) {
+func (r *Resolver) Wait() (present, changed bool) {
 	defer close(r.done)
 	if !r.matched {
 		if r.present {
 			panic("invalid state: present but non-matching")
 		}
-		for _, l := range links {
-			if l.Require {
-				l.send(EventRequire)
-			}
-			if l.Contents || l.Version {
-				l.send(EventChange)
+		for _, l := range r.links {
+			if l.Version {
+				r.send(l, EventChange)
 			}
 		}
-		r.present = true
-		r.changed = true
+		r.change()
 	}
-	gl := newLock()
-	select {
-	case ev := <-r.c:
-		r.trigger(links, ev)
-	case <-gl.wait():
-		return
+	for {
+		select {
+		case ev := <-r.c:
+			r.trigger(ev)
+			r.lock.release()
+		case <-r.lock.wait():
+			return r.present, r.changed
+		}
 	}
-	return r.present, r.changed
 }
 
 // r.present = version-matching layer is present
 
-func (r *Resolver) trigger(links []Linc, ev Event) {
+func (r *Resolver) trigger(ev Event) {
 	switch ev {
 	case EventRequire:
 		if r.present {
 			return
 		}
-		for _, l := range links {
-			if l.Require {
-				l.send(EventRequire)
-			}
-			if l.Contents {
-				l.send(EventChange)
-			}
-		}
-		r.present = true
-		r.changed = true
+		r.change()
 	case EventChange:
 		if r.changed {
 			return
 		}
-		for _, l := range links {
-			if l.Require {
-				l.send(EventRequire)
-			}
-			if l.Contents {
-				l.send(EventChange)
-			}
-		}
-		r.present = true
-		r.changed = true
+		r.change()
 	}
 }
 
-
+func (r *Resolver) change() {
+	for _, l := range r.links {
+		if l.Require {
+			r.send(l, EventRequire)
+		}
+		if l.Contents {
+			r.send(l, EventChange)
+		}
+	}
+	r.present = true
+	r.changed = true
+}
 
 //type Resolver struct {
 //	status chan bool
