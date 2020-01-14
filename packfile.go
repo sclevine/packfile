@@ -62,6 +62,7 @@ type Provide struct {
 type Test struct {
 	Exec
 	WriteApp bool `toml:"write-app"`
+	UseLinks bool `toml:"use-links"`
 }
 
 type Envs struct {

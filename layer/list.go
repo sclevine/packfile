@@ -1,7 +1,6 @@
 package layer
 
 import (
-	"fmt"
 	"io"
 
 	"golang.org/x/xerrors"
@@ -32,6 +31,7 @@ type entry struct {
 	runExec  *lsync.Exec
 	testExec *lsync.Exec
 	change   *lsync.Bool
+
 }
 
 func (e *entry) skip(err error) {
@@ -50,7 +50,6 @@ func (e *entry) run(prev, next []entry) {
 	}
 	var testRes []lsync.LinkResult
 	for i, ll := range linkLayers {
-		fmt.Printf("before link wait %s, link %s\n", e.name, ll.name)
 		result, err := ll.testExec.Wait()
 		if IsFail(err) {
 			e.skip(xerrors.Errorf("test for link '%s' failed: %w", ll.name, err))

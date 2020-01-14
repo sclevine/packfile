@@ -40,12 +40,12 @@ name = "<layer/cache name reference>"
 path-as = "<env var name for path>"
 version-as = "<env var name for version>"
 metadata-as = "<env var name for metadata path>"
-for-test = false # provide the path/layer for test
 link-contents = false # always rebuild on change
 link-version = false # rebuild on version change
 
 [layers.provide.test]
 write-app = false
+use-links = false # provide the path/layer for test
 shell = "/usr/bin/env bash"
 inline = "<script>"
 path = "<path to script>"

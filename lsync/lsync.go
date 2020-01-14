@@ -107,6 +107,252 @@ func (l *Bool) Wait() bool {
 	return l.res
 }
 
+type lock struct {
+	n   int
+	c   chan struct{}
+	mut sync.Mutex
+}
+
+func (l *lock) claim() {
+	l.mut.Lock()
+	l.n++
+	l.mut.Unlock()
+}
+
+// panics if called more times than claim
+func (l *lock) release() {
+	l.mut.Lock()
+	l.n--
+	if l.n <= 0 {
+		close(l.c)
+	}
+	l.mut.Unlock()
+}
+
+func (l *lock) wait() <-chan struct{} {
+	return l.c
+}
+
+func newLock() lock {
+	return lock{
+		c: make(chan struct{}),
+	}
+}
+
+type Event int
+
+const (
+	EventRequire = iota
+	EventChange
+)
+
+type Resolver struct {
+	matched bool
+	present bool
+	changed bool
+	c       chan Event
+	done    chan struct{}
+}
+
+type Linc struct {
+	Require  bool
+	Contents bool
+	Version  bool
+	c        chan<- Event
+	done     chan struct{}
+}
+
+func (l *Linc) send(ev Event) {
+	select {
+	case l.c <- ev:
+	case <-l.done:
+	}
+}
+
+func NewResolver(matched, present bool) *Resolver {
+	return &Resolver{
+		matched: matched,
+		present: present,
+		c:       make(chan Event),
+		done:    make(chan struct{}),
+	}
+}
+
+func (r *Resolver) Wait(links []Linc) (present, changed bool) {
+	defer close(r.done)
+	if !r.matched {
+		if r.present {
+			panic("invalid state: present but non-matching")
+		}
+		for _, l := range links {
+			if l.Require {
+				l.send(EventRequire)
+			}
+			if l.Contents || l.Version {
+				l.send(EventChange)
+			}
+		}
+		r.present = true
+		r.changed = true
+	}
+	gl := newLock()
+	select {
+	case ev := <-r.c:
+		r.trigger(links, ev)
+	case <-gl.wait():
+		return
+	}
+	return r.present, r.changed
+}
+
+// r.present = version-matching layer is present
+
+func (r *Resolver) trigger(links []Linc, ev Event) {
+	switch ev {
+	case EventRequire:
+		if r.present {
+			return
+		}
+		for _, l := range links {
+			if l.Require {
+				l.send(EventRequire)
+			}
+			if l.Contents {
+				l.send(EventChange)
+			}
+		}
+		r.present = true
+		r.changed = true
+	case EventChange:
+		if r.changed {
+			return
+		}
+		for _, l := range links {
+			if l.Require {
+				l.send(EventRequire)
+			}
+			if l.Contents {
+				l.send(EventChange)
+			}
+		}
+		r.present = true
+		r.changed = true
+	}
+}
+
+
+
+//type Resolver struct {
+//	status chan bool
+//	done   chan struct{}
+//	wg     *sync.WaitGroup
+//	change bool
+//}
+//
+//func NewResolver() *Resolver {
+//	return &Resolver{
+//		status: make(chan bool),
+//		done:   make(chan struct{}),
+//		wg:     &sync.WaitGroup{},
+//	}
+//}
+//// need to send signal to link when only link change could change own behavior
+//func (r *Resolver) Wait(links []Resolver) (change, ok bool) {
+//	defer close(r.done)
+//	changes := make(chan struct{})
+//	earlyChanges := changes
+//
+//	go func() {
+//		defer close(changes)
+//		for _, l := range links {
+//			l.wg.Wait()
+//			if l.change {
+//				changes <- struct{}{}
+//				return
+//			}
+//		}
+//		earlyChanges = nil
+//	}()
+//	select {
+//	case _, change := <-earlyChanges:
+//		return change, true
+//	case ok := <-r.status:
+//		_, change := <-changes
+//		return change, ok
+//	}
+//}
+//
+//
+//func (r *Resolver) WaitOld(links []Resolver) (change, ok bool) {
+//	defer close(r.done)
+//	changes := make(chan struct{})
+//	earlyChanges := changes
+//
+//	go func() {
+//		defer close(changes)
+//		for _, l := range links {
+//			l.wg.Wait()
+//			if l.change {
+//				changes <- struct{}{}
+//				return
+//			}
+//		}
+//		earlyChanges = nil
+//	}()
+//	select {
+//	case _, change := <-earlyChanges:
+//		return change, true
+//	case pass := <-r.status:
+//		if !pass {
+//			return false, false
+//		}
+//		Trigger(links)
+//		_, change := <-changes
+//		return change, true
+//	}
+//}
+//
+//func (r *Resolver) WaitOld2(links []Resolver) (change, ok bool) {
+//	defer close(r.done)
+//	changes := make(chan struct{})
+//
+//	go func() {
+//		defer close(changes)
+//		for _, l := range links {
+//			l.wg.Wait()
+//			if l.change {
+//				changes <- struct{}{}
+//				return
+//			}
+//		}
+//	}()
+//	select {
+//	case _, change = <-changes:
+//		ok = true
+//	case ok = <-r.status:
+//	}
+//	if !ok {
+//		return false, false
+//	}
+//	Trigger(links)
+//	_, change := <-changes
+//	return change, true
+//}
+//
+//func (r *Resolver) Change(v bool) {
+//	r.change = v
+//	r.wg.Done()
+//}
+//
+//func Trigger(links []Resolver) {
+//	for _, l := range links {
+//		select {
+//		case l.status <- true:
+//		case <-l.done:
+//		}
+//	}
+//}
+
 type BufferPipe struct {
 	*bufio.Writer
 	io.Reader
