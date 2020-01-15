@@ -119,7 +119,7 @@ func (l *Lock) claim() {
 	l.mut.Unlock()
 }
 
-// panics if called more times than claim
+// panics if called more times than claim+n
 func (l *Lock) release() {
 	l.mut.Lock()
 	l.n--
@@ -133,8 +133,9 @@ func (l *Lock) wait() <-chan struct{} {
 	return l.c
 }
 
-func NewLock() Lock {
+func NewLock(n int) Lock {
 	return Lock{
+		n: n,
 		c: make(chan struct{}),
 	}
 }
@@ -197,6 +198,7 @@ func (r *Resolver) Wait() (present, changed bool) {
 		}
 		r.change()
 	}
+	r.lock.release()
 	for {
 		select {
 		case ev := <-r.c:
