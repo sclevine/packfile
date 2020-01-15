@@ -149,6 +149,7 @@ const (
 
 type Resolver struct {
 	links   []Linc
+	runner  Runner
 	matched bool
 	present bool
 	changed bool
@@ -158,11 +159,26 @@ type Resolver struct {
 }
 
 type Linc struct {
-	Require  bool
-	Contents bool
-	Version  bool
-	c        chan<- Event
-	done     chan struct{}
+	Require bool
+	Content bool
+	Version bool
+	c       chan<- Event
+	done    chan struct{}
+}
+
+type Runner interface {
+	Test() (matched, present bool)
+	Run()
+}
+
+func NewResolver(lock *Lock, links []Linc, runner Runner, testLinks bool) *Resolver {
+	return &Resolver{
+		links:  links,
+		runner: runner,
+		c:      make(chan Event),
+		done:   make(chan struct{}),
+		lock:   lock,
+	}
 }
 
 func (r *Resolver) send(link Linc, ev Event) {
@@ -174,19 +190,11 @@ func (r *Resolver) send(link Linc, ev Event) {
 	}
 }
 
-func NewResolver(lock *Lock, links []Linc, matched, present bool) *Resolver {
-	return &Resolver{
-		links:   links,
-		matched: matched,
-		present: present,
-		c:       make(chan Event),
-		done:    make(chan struct{}),
-		lock:    lock,
-	}
-}
-
-func (r *Resolver) Wait() (present, changed bool) {
+func (r *Resolver) Wait() {
 	defer close(r.done)
+
+	r.matched, r.present = r.runner.Test()
+
 	if !r.matched {
 		if r.present {
 			panic("invalid state: present but non-matching")
@@ -198,6 +206,7 @@ func (r *Resolver) Wait() (present, changed bool) {
 		}
 		r.change()
 	}
+
 	r.lock.release()
 	for {
 		select {
@@ -205,7 +214,9 @@ func (r *Resolver) Wait() (present, changed bool) {
 			r.trigger(ev)
 			r.lock.release()
 		case <-r.lock.wait():
-			return r.present, r.changed
+			if r.changed {
+				r.runner.Run()
+			}
 		}
 	}
 }
@@ -232,7 +243,7 @@ func (r *Resolver) change() {
 		if l.Require {
 			r.send(l, EventRequire)
 		}
-		if l.Contents {
+		if l.Content {
 			r.send(l, EventChange)
 		}
 	}
