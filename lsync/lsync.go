@@ -148,14 +148,15 @@ const (
 )
 
 type Resolver struct {
-	links   []Linc
-	runner  Runner
-	matched bool
-	present bool
-	changed bool
-	c       chan Event
-	done    chan struct{}
-	lock    *Lock
+	links     []Linc
+	runner    Runner
+	testLinks bool
+	matched   bool
+	present   bool
+	changed   bool
+	c         chan Event
+	done      chan struct{}
+	lock      *Lock
 }
 
 type Linc struct {
@@ -173,11 +174,12 @@ type Runner interface {
 
 func NewResolver(lock *Lock, links []Linc, runner Runner, testLinks bool) *Resolver {
 	return &Resolver{
-		links:  links,
-		runner: runner,
-		c:      make(chan Event),
-		done:   make(chan struct{}),
-		lock:   lock,
+		links:     links,
+		runner:    runner,
+		testLinks: testLinks,
+		c:         make(chan Event),
+		done:      make(chan struct{}),
+		lock:      lock,
 	}
 }
 
@@ -193,6 +195,15 @@ func (r *Resolver) send(link Linc, ev Event) {
 func (r *Resolver) Wait() {
 	defer close(r.done)
 
+	if r.testLinks {
+		for _, l := range r.links {
+			if l.Require {
+				r.send(l, EventRequire)
+			}
+		}
+		r.lock.release()
+	}
+
 	r.matched, r.present = r.runner.Test()
 
 	if !r.matched {
@@ -207,7 +218,9 @@ func (r *Resolver) Wait() {
 		r.change()
 	}
 
-	r.lock.release()
+	if !r.testLinks {
+		r.lock.release()
+	}
 	for {
 		select {
 		case ev := <-r.c:
