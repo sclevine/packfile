@@ -133,7 +133,7 @@ func (l *buildLayer) Name() string {
 	return l.layer.Name
 }
 
-func (l *buildLayer) Links() []lsync.Link {
+func (l *buildLayer) Links() []lsync.OldLink {
 	return l.provide().Links
 }
 
@@ -367,6 +367,6 @@ func (l *cacheLayer) Name() string {
 	return l.cache.Name
 }
 
-func (l *cacheLayer) Links() []lsync.Link {
+func (l *cacheLayer) Links() []lsync.OldLink {
 	return nil
 }

@@ -27,7 +27,7 @@ type List []entry
 type entry struct {
 	Streamer
 	name     string
-	links    []lsync.Link
+	links    []lsync.OldLink
 	runExec  *lsync.Exec
 	testExec *lsync.Exec
 	change   *lsync.Bool
@@ -66,8 +66,8 @@ func (e *entry) run(prev, next []entry) {
 			}
 		}
 		testRes = append(testRes, lsync.LinkResult{
-			Link:        e.links[i],
-			Result:      result,
+			OldLink: e.links[i],
+			Result:  result,
 			//NoChange:    !ll.change.Wait(), // FIXME: deadlock, hard problem? can't just use test? - maybe okay to use test actually!
 			//FIXME: new problem: what's the difference between these cases?
 			//FIXME: problem when both are not needed?
@@ -98,7 +98,7 @@ func (e *entry) run(prev, next []entry) {
 			return
 		}
 		runRes = append(runRes, lsync.LinkResult{
-			Link:        e.links[i],
+			OldLink:     e.links[i],
 			Result:      result,
 			Preserved:   xerrors.Is(err, ErrExists),
 			SameVersion: IsNotChanged(err),
@@ -120,7 +120,7 @@ func NewList() List {
 type Layer interface {
 	Streamer
 	Name() string
-	Links() []lsync.Link
+	Links() []lsync.OldLink
 	Run(results []lsync.LinkResult) (lsync.Result, error)
 }
 
@@ -149,7 +149,7 @@ func (l List) Add(layer Layer) List {
 	return append(l, e)
 }
 
-func findAll(links []lsync.Link, layers []entry) ([]entry, error) {
+func findAll(links []lsync.OldLink, layers []entry) ([]entry, error) {
 	out := make([]entry, 0, len(links))
 	for _, link := range links {
 		l, ok := find(link.Name, layers)

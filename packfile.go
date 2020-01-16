@@ -51,12 +51,12 @@ type Require struct {
 
 type Provide struct {
 	Exec
-	WriteApp bool         `toml:"write-app"`
-	Test     *Test        `toml:"test"`
-	Links    []lsync.Link `toml:"links"`
-	Deps     []Dep        `toml:"deps"`
-	Env      Envs         `toml:"env"`
-	Profile  []File       `toml:"profile"`
+	WriteApp bool            `toml:"write-app"`
+	Test     *Test           `toml:"test"`
+	Links    []lsync.OldLink `toml:"links"`
+	Deps     []Dep           `toml:"deps"`
+	Env      Envs            `toml:"env"`
+	Profile  []File          `toml:"profile"`
 }
 
 type Test struct {

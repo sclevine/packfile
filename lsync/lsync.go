@@ -13,13 +13,13 @@ var ErrEmpty = xerrors.New("empty")
 var EmptyExec = NewExec(nil)
 
 type LinkResult struct {
-	Link
+	OldLink
 	Result
 	Preserved   bool
 	SameVersion bool // FIXME: doesn't belong here!
 }
 
-type Link struct {
+type OldLink struct {
 	Name         string `toml:"name"`
 	PathEnv      string `toml:"path-as"`
 	VersionEnv   string `toml:"version-as"`
@@ -147,10 +147,8 @@ const (
 	EventChange
 )
 
-type Resolver struct {
-	links     []Linc
+type Layer struct {
 	runner    Runner
-	testLinks bool
 	matched   bool
 	exists    bool
 	change    bool
@@ -161,7 +159,7 @@ type Resolver struct {
 	lock      *Lock
 }
 
-type Linc struct {
+type Link struct {
 	Require bool
 	Content bool
 	Version bool
@@ -172,17 +170,16 @@ type Linc struct {
 type Runner interface {
 	Test() (exists, matched bool)
 	Run()
+	Links() (links []Link, forTest bool)
 }
 
-func NewResolver(lock *Lock, links []Linc, runner Runner, testLinks bool) *Resolver {
+func NewLayer(lock *Lock, runner Runner) *Layer {
 	testWG := &sync.WaitGroup{}
 	testWG.Add(1)
 	runWG := &sync.WaitGroup{}
 	runWG.Add(1)
-	return &Resolver{
-		links:     links,
+	return &Layer{
 		runner:    runner,
-		testLinks: testLinks,
 		testWG:    testWG,
 		runWG:     runWG,
 		c:         make(chan Event),
@@ -191,180 +188,127 @@ func NewResolver(lock *Lock, links []Linc, runner Runner, testLinks bool) *Resol
 	}
 }
 
-func (r *Resolver) send(link Linc, ev Event) {
-	r.lock.claim()
+func (l *Layer) send(link Link, ev Event) {
+	l.lock.claim()
 	select {
 	case link.c <- ev:
 	case <-link.done:
-		r.lock.release()
+		l.lock.release()
 	}
 }
 
-func (r *Resolver) RunCombined() {
-	defer close(r.done)
-
-	if r.testLinks {
-		for _, l := range r.links {
-			if l.Require {
-				r.send(l, EventRequire)
-			}
-		}
-		r.lock.release()
-		for _, l := range r.links {
-			if l.Require {
-				r.runWG.Wait()
-			}
-		}
+func (l *Layer) Run() {
+	links, forTest := l.runner.Links()
+	if forTest {
+		l.runWithLinks(links)
 	} else {
-		for _, l := range r.links {
-			if l.Require {
-				r.testWG.Wait()
-			}
+		l.run(links)
+	}
+}
+
+func (l *Layer) run(links []Link) {
+	defer close(l.done)
+
+	for _, link := range links {
+		if link.Require {
+			l.testWG.Wait()
 		}
 	}
 
-	r.exists, r.matched = r.runner.Test()
-	r.testWG.Done()
+	l.exists, l.matched = l.runner.Test()
+	l.testWG.Done()
 
-	if !r.matched {
-		if r.exists {
-			panic("invalid state: present but non-matching")
-		}
-		for _, l := range r.links {
-			if l.Version {
-				r.send(l, EventChange)
-			}
-		}
-		r.create()
-	}
+	l.init(links)
+	l.lock.release()
 
-	if !r.testLinks {
-		r.lock.release()
-	}
 	for {
 		select {
-		case ev := <-r.c:
-			r.trigger(ev)
-			r.lock.release()
-		case <-r.lock.wait():
-			if r.change {
-				if !r.testLinks {
-					for _, l := range r.links {
-						if l.Require {
-							r.runWG.Wait()
-						}
+		case ev := <-l.c:
+			l.trigger(links, ev)
+			l.lock.release()
+		case <-l.lock.wait():
+			if l.change {
+				for _, link := range links {
+					if link.Require {
+						l.runWG.Wait()
 					}
 				}
-				r.runner.Run()
+				l.runner.Run()
 			}
-			r.runWG.Done()
+			l.runWG.Done()
 		}
 	}
 }
 
-func (r *Resolver) Run() {
-	defer close(r.done)
+func (l *Layer) runWithLinks(links []Link) {
+	defer close(l.done)
 
-	for _, l := range r.links {
-		if l.Require {
-			r.testWG.Wait()
+	for _, link := range links {
+		if link.Require {
+			l.send(link, EventRequire)
+		}
+	}
+	l.lock.release()
+	for _, link := range links {
+		if link.Require {
+			l.runWG.Wait()
 		}
 	}
 
-	r.exists, r.matched = r.runner.Test()
-	r.testWG.Done()
+	l.exists, l.matched = l.runner.Test()
+	l.testWG.Done()
 
-	r.init()
-	r.lock.release()
+	l.init(links)
 
 	for {
 		select {
-		case ev := <-r.c:
-			r.trigger(ev)
-			r.lock.release()
-		case <-r.lock.wait():
-			if r.change {
-				for _, l := range r.links {
-					if l.Require {
-						r.runWG.Wait()
-					}
-				}
-				r.runner.Run()
+		case ev := <-l.c:
+			l.trigger(links, ev)
+			l.lock.release()
+		case <-l.lock.wait():
+			if l.change {
+				l.runner.Run()
 			}
-			r.runWG.Done()
-		}
-	}
-}
-
-func (r *Resolver) RunAfterLinks() {
-	defer close(r.done)
-
-	for _, l := range r.links {
-		if l.Require {
-			r.send(l, EventRequire)
-		}
-	}
-	r.lock.release()
-	for _, l := range r.links {
-		if l.Require {
-			r.runWG.Wait()
-		}
-	}
-
-	r.exists, r.matched = r.runner.Test()
-	r.testWG.Done()
-
-	r.init()
-
-	for {
-		select {
-		case ev := <-r.c:
-			r.trigger(ev)
-			r.lock.release()
-		case <-r.lock.wait():
-			if r.change {
-				r.runner.Run()
-			}
-			r.runWG.Done()
+			l.runWG.Done()
 		}
 	}
 }
 
 // r.present = version-matching layer is present
 
-func (r *Resolver) trigger(ev Event) {
-	if ev == EventRequire && r.exists ||
-		ev == EventChange && r.change {
+func (l *Layer) trigger(links []Link, ev Event) {
+	if ev == EventRequire && l.exists ||
+		ev == EventChange && l.change {
 		return
 	}
-	r.create()
+	for _, link := range links {
+		if link.Require {
+			l.send(link, EventRequire)
+		}
+		if link.Content {
+			l.send(link, EventChange)
+		}
+	}
+	l.exists = true
+	l.change = true
 }
 
-func (r *Resolver) init() {
-	if !r.matched {
-		if r.exists {
+func (l *Layer) init(links []Link) {
+	if !l.matched {
+		if l.exists {
 			panic("invalid state: present but non-matching")
 		}
-		for _, l := range r.links {
-			if l.Version {
-				r.send(l, EventChange)
+		for _, link := range links {
+			if link.Require {
+				l.send(link, EventRequire)
+			}
+			if link.Content || link.Version {
+				l.send(link, EventChange)
 			}
 		}
-		r.create()
+		l.exists = true
+		l.change = true
 	}
-}
-
-func (r *Resolver) create() {
-	for _, l := range r.links {
-		if l.Require {
-			r.send(l, EventRequire)
-		}
-		if l.Content {
-			r.send(l, EventChange)
-		}
-	}
-	r.exists = true
-	r.change = true
 }
 
 type BufferPipe struct {
