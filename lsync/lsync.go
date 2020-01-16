@@ -152,8 +152,10 @@ type Resolver struct {
 	runner    Runner
 	testLinks bool
 	matched   bool
-	present   bool
-	changed   bool
+	exists    bool
+	change    bool
+	testWG    *sync.WaitGroup
+	runWG     *sync.WaitGroup
 	c         chan Event
 	done      chan struct{}
 	lock      *Lock
@@ -168,15 +170,21 @@ type Linc struct {
 }
 
 type Runner interface {
-	Test() (matched, present bool)
+	Test() (exists, matched bool)
 	Run()
 }
 
 func NewResolver(lock *Lock, links []Linc, runner Runner, testLinks bool) *Resolver {
+	testWG := &sync.WaitGroup{}
+	testWG.Add(1)
+	runWG := &sync.WaitGroup{}
+	runWG.Add(1)
 	return &Resolver{
 		links:     links,
 		runner:    runner,
 		testLinks: testLinks,
+		testWG:    testWG,
+		runWG:     runWG,
 		c:         make(chan Event),
 		done:      make(chan struct{}),
 		lock:      lock,
@@ -192,7 +200,7 @@ func (r *Resolver) send(link Linc, ev Event) {
 	}
 }
 
-func (r *Resolver) Wait() {
+func (r *Resolver) RunCombined() {
 	defer close(r.done)
 
 	if r.testLinks {
@@ -202,12 +210,24 @@ func (r *Resolver) Wait() {
 			}
 		}
 		r.lock.release()
+		for _, l := range r.links {
+			if l.Require {
+				r.runWG.Wait()
+			}
+		}
+	} else {
+		for _, l := range r.links {
+			if l.Require {
+				r.testWG.Wait()
+			}
+		}
 	}
 
-	r.matched, r.present = r.runner.Test()
+	r.exists, r.matched = r.runner.Test()
+	r.testWG.Done()
 
 	if !r.matched {
-		if r.present {
+		if r.exists {
 			panic("invalid state: present but non-matching")
 		}
 		for _, l := range r.links {
@@ -215,7 +235,7 @@ func (r *Resolver) Wait() {
 				r.send(l, EventChange)
 			}
 		}
-		r.change()
+		r.create()
 	}
 
 	if !r.testLinks {
@@ -227,9 +247,85 @@ func (r *Resolver) Wait() {
 			r.trigger(ev)
 			r.lock.release()
 		case <-r.lock.wait():
-			if r.changed {
+			if r.change {
+				if !r.testLinks {
+					for _, l := range r.links {
+						if l.Require {
+							r.runWG.Wait()
+						}
+					}
+				}
 				r.runner.Run()
 			}
+			r.runWG.Done()
+		}
+	}
+}
+
+func (r *Resolver) Run() {
+	defer close(r.done)
+
+	for _, l := range r.links {
+		if l.Require {
+			r.testWG.Wait()
+		}
+	}
+
+	r.exists, r.matched = r.runner.Test()
+	r.testWG.Done()
+
+	r.init()
+	r.lock.release()
+
+	for {
+		select {
+		case ev := <-r.c:
+			r.trigger(ev)
+			r.lock.release()
+		case <-r.lock.wait():
+			if r.change {
+				for _, l := range r.links {
+					if l.Require {
+						r.runWG.Wait()
+					}
+				}
+				r.runner.Run()
+			}
+			r.runWG.Done()
+		}
+	}
+}
+
+func (r *Resolver) RunAfterLinks() {
+	defer close(r.done)
+
+	for _, l := range r.links {
+		if l.Require {
+			r.send(l, EventRequire)
+		}
+	}
+	r.lock.release()
+	for _, l := range r.links {
+		if l.Require {
+			r.runWG.Wait()
+		}
+	}
+
+	r.exists, r.matched = r.runner.Test()
+	r.testWG.Done()
+
+	r.init()
+
+	for {
+		select {
+		case ev := <-r.c:
+			r.trigger(ev)
+			r.lock.release()
+		case <-r.lock.wait():
+			if r.change {
+				r.runner.Run()
+			}
+			r.runWG.Done()
 		}
 	}
 }
@@ -237,21 +333,28 @@ func (r *Resolver) Wait() {
 // r.present = version-matching layer is present
 
 func (r *Resolver) trigger(ev Event) {
-	switch ev {
-	case EventRequire:
-		if r.present {
-			return
+	if ev == EventRequire && r.exists ||
+		ev == EventChange && r.change {
+		return
+	}
+	r.create()
+}
+
+func (r *Resolver) init() {
+	if !r.matched {
+		if r.exists {
+			panic("invalid state: present but non-matching")
 		}
-		r.change()
-	case EventChange:
-		if r.changed {
-			return
+		for _, l := range r.links {
+			if l.Version {
+				r.send(l, EventChange)
+			}
 		}
-		r.change()
+		r.create()
 	}
 }
 
-func (r *Resolver) change() {
+func (r *Resolver) create() {
 	for _, l := range r.links {
 		if l.Require {
 			r.send(l, EventRequire)
@@ -260,8 +363,8 @@ func (r *Resolver) change() {
 			r.send(l, EventChange)
 		}
 	}
-	r.present = true
-	r.changed = true
+	r.exists = true
+	r.change = true
 }
 
 type BufferPipe struct {
