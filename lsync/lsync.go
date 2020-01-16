@@ -168,9 +168,9 @@ type Link struct {
 }
 
 type Runner interface {
+	Links() (links []Link, forTest bool)
 	Test() (exists, matched bool)
 	Run()
-	Links() (links []Link, forTest bool)
 }
 
 func NewLayer(lock *Lock, runner Runner) *Layer {
@@ -200,13 +200,13 @@ func (l *Layer) send(link Link, ev Event) {
 func (l *Layer) Run() {
 	links, forTest := l.runner.Links()
 	if forTest {
-		l.runWithLinks(links)
+		l.tryAfter(links)
 	} else {
-		l.run(links)
+		l.try(links)
 	}
 }
 
-func (l *Layer) run(links []Link) {
+func (l *Layer) try(links []Link) {
 	defer close(l.done)
 
 	for _, link := range links {
@@ -240,7 +240,7 @@ func (l *Layer) run(links []Link) {
 	}
 }
 
-func (l *Layer) runWithLinks(links []Link) {
+func (l *Layer) tryAfter(links []Link) {
 	defer close(l.done)
 
 	for _, link := range links {
@@ -273,8 +273,6 @@ func (l *Layer) runWithLinks(links []Link) {
 		}
 	}
 }
-
-// r.present = version-matching layer is present
 
 func (l *Layer) trigger(links []Link, ev Event) {
 	if ev == EventRequire && l.exists ||
