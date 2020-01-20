@@ -143,7 +143,7 @@ func (d *detectLayer) Name() string {
 	return d.layer.Name
 }
 
-func (d *detectLayer) Links() []lsync.OldLink {
+func (d *detectLayer) Links() []Link {
 	return nil
 }
 

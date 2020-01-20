@@ -5,6 +5,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/lsync"
 )
 
@@ -27,11 +28,7 @@ type List []entry
 type entry struct {
 	Streamer
 	name     string
-	links    []lsync.OldLink
-	runExec  *lsync.Exec
-	testExec *lsync.Exec
-	change   *lsync.Bool
-
+	layer    lsync.Layer
 }
 
 func (e *entry) skip(err error) {
@@ -66,8 +63,8 @@ func (e *entry) run(prev, next []entry) {
 			}
 		}
 		testRes = append(testRes, lsync.LinkResult{
-			OldLink: e.links[i],
-			Result:  result,
+			Link:   e.links[i],
+			Result: result,
 			//NoChange:    !ll.change.Wait(), // FIXME: deadlock, hard problem? can't just use test? - maybe okay to use test actually!
 			//FIXME: new problem: what's the difference between these cases?
 			//FIXME: problem when both are not needed?
@@ -98,7 +95,7 @@ func (e *entry) run(prev, next []entry) {
 			return
 		}
 		runRes = append(runRes, lsync.LinkResult{
-			OldLink:     e.links[i],
+			Link:        e.links[i],
 			Result:      result,
 			Preserved:   xerrors.Is(err, ErrExists),
 			SameVersion: IsNotChanged(err),
@@ -120,7 +117,7 @@ func NewList() List {
 type Layer interface {
 	Streamer
 	Name() string
-	Links() []lsync.OldLink
+	Links() []packfile.Link
 	Run(results []lsync.LinkResult) (lsync.Result, error)
 }
 
@@ -149,7 +146,7 @@ func (l List) Add(layer Layer) List {
 	return append(l, e)
 }
 
-func findAll(links []lsync.OldLink, layers []entry) ([]entry, error) {
+func findAll(links []packfile.Link, layers []entry) ([]entry, error) {
 	out := make([]entry, 0, len(links))
 	for _, link := range links {
 		l, ok := find(link.Name, layers)
@@ -170,26 +167,6 @@ func find(name string, layers []entry) (entry, bool) {
 	return entry{}, false
 }
 
-func used(name string, layers []entry) bool {
-	for _, layer := range layers {
-		for _, link := range layer.links {
-			if link.Name == name {
-				return link.ForTest || layer.change.Wait()
-			}
-		}
-	}
-	return false
-}
-
-func wait(name string, layers []entry) {
-	for _, layer := range layers {
-		for _, link := range layer.links {
-			if link.Name == name && !link.ForTest {
-				layer.change.Wait()
-			}
-		}
-	}
-}
 
 func (l List) Wait() []FinalResult {
 	var out []FinalResult

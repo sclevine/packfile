@@ -65,9 +65,9 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	if _, err := toml.DecodeFile(planPath, &plan); err != nil {
 		return err
 	}
-	list := layer.NewList()
+	var list []lsync.Runner
 	for i := range pf.Caches {
-		list = list.Add(&cacheLayer{
+		list = append(list, &cacheLayer{
 			Streamer: lsync.NewStreamer(),
 			cache:    &pf.Caches[i],
 			shell:    shell,
@@ -100,6 +100,8 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 			requires: plan.get(lp.Name),
 		})
 	}
+	lock := lsync.NewLock(len(list))
+
 	list.Run()
 	list.Stream(os.Stdout, os.Stderr)
 	if err := writeTOML(launchTOML{
@@ -122,6 +124,8 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 type buildLayer struct {
 	*lsync.Streamer
 	layer    *Layer
+	result   linkResult
+	links    []buildLink
 	shell    string
 	mdDir    string
 	appDir   string
@@ -129,12 +133,103 @@ type buildLayer struct {
 	requires []planRequire
 }
 
-func (l *buildLayer) Name() string {
+type buildLink struct {
+	name string
+	lsync.Link
+	*linkResult
+}
+
+type linkResult struct {
+	layerPath    string
+	metadataPath string
+	err          error
+}
+
+func makeLayers(list []linkRunner) []*lsync.Layer {
+	lock := lsync.NewLock(len(list))
+	var layers []*lsync.Layer
+	for i := range list {
+		for j := range list[:i] {
+			for _, link := range list[i].linkList() {
+				if link.Name == list[j].linkName() {
+					list[i].addLink(buildLink{
+						link.Name,
+						layers[j].Link(true, false, false),
+						list[j].linkResult(),
+					})
+				}
+			}
+			for _, link := range list[j].linkList() {
+				if link.Name == list[i].linkName() &&
+					(link.LinkContents || link.LinkVersion) {
+					list[i].addLink(buildLink{
+						list[j].linkName(),
+						layers[j].Link(false, link.LinkContents, link.LinkVersion),
+						list[j].linkResult(),
+					})
+				}
+			}
+		}
+		layers = append(layers, lsync.NewLayer(lock, list[i]))
+	}
+	return layers
+}
+
+type linkRunner interface {
+	lsync.Runner
+	linkName() string
+	linkResult() *linkResult
+	linkList() []Link
+	addLink(link buildLink)
+}
+
+func (l *buildLayer) linkName() string {
 	return l.layer.Name
 }
 
-func (l *buildLayer) Links() []lsync.OldLink {
+func (l *buildLayer) linkResult() *linkResult {
+	return &l.result
+}
+
+func (l *buildLayer) linkList() []Link {
 	return l.provide().Links
+}
+
+func (l *buildLayer) addLink(link buildLink) {
+	l.links = append(l.links, link)
+}
+
+func (l *buildLayer) dothing(list []linkRunner, layers []*lsync.Layer) {
+	for j := range list {
+		for _, link := range l.provide().Links {
+			if link.Name == list[j].linkName() {
+				l.links = append(l.links, buildLink{
+					link.Name,
+					layers[j].Link(true, false, false),
+					list[j].linkResult(),
+				})
+			}
+		}
+		for _, link := range list[j].linkList() {
+			if link.Name == l.linkName() && (link.LinkContents || link.LinkVersion) {
+				l.links = append(l.links, buildLink{
+					list[j].linkName(),
+					layers[j].Link(false, link.LinkContents, link.LinkVersion),
+					list[j].linkResult(),
+				})
+			}
+		}
+	}
+}
+
+func (l *buildLayer) Links() (links []lsync.Link, forTest bool) {
+	if l.provide() != nil && l.provide().Test != nil {
+		forTest = l.provide().Test.UseLinks
+	}
+	for _, l := range l.links {
+		links = append(links, l.Link)
+	}
+	return links, forTest
 }
 
 func (l *buildLayer) provide() *Provide {
@@ -367,6 +462,6 @@ func (l *cacheLayer) Name() string {
 	return l.cache.Name
 }
 
-func (l *cacheLayer) Links() []lsync.OldLink {
+func (l *cacheLayer) Links() []Link {
 	return nil
 }

@@ -4,113 +4,19 @@ import (
 	"bufio"
 	"io"
 	"sync"
-
-	"golang.org/x/xerrors"
 )
-
-var ErrEmpty = xerrors.New("empty")
-
-var EmptyExec = NewExec(nil)
-
-type LinkResult struct {
-	OldLink
-	Result
-	Preserved   bool
-	SameVersion bool // FIXME: doesn't belong here!
-}
-
-type OldLink struct {
-	Name         string `toml:"name"`
-	PathEnv      string `toml:"path-as"`
-	VersionEnv   string `toml:"version-as"`
-	MetadataEnv  string `toml:"metadata-as"`
-	ForTest      bool   `toml:"for-test"`
-	LinkContents bool   `toml:"link-contents"`
-	LinkVersion  bool   `toml:"link-version"`
-}
-
-type Result struct {
-	LayerPath    string
-	MetadataPath string
-}
-
-func (r Result) LayerTOML() string {
-	return r.LayerPath + ".toml"
-}
-
-type LayerFunc func(lrs []LinkResult) (Result, error)
-
-type Exec struct {
-	f   LayerFunc
-	wg  *sync.WaitGroup
-	res Result
-	err error
-}
-
-func NewExec(f LayerFunc) *Exec {
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	return &Exec{f: f, wg: wg}
-}
-
-func (l *Exec) Run(lrs []LinkResult) (Result, error) {
-	if l.f == nil {
-		return Result{}, ErrEmpty
-	}
-	defer l.wg.Done()
-	l.res, l.err = l.f(lrs)
-	return l.res, l.err
-}
-
-func (l *Exec) Skip(err error) {
-	if l.f == nil {
-		return
-	}
-	defer l.wg.Done()
-	l.err = err
-}
-
-func (l *Exec) Set(res Result, err error) {
-	if l.f == nil {
-		return
-	}
-	defer l.wg.Done()
-	l.res, l.err = res, err
-}
-
-func (l *Exec) Wait() (Result, error) {
-	if l.f == nil {
-		return Result{}, ErrEmpty
-	}
-	l.wg.Wait()
-	return l.res, l.err
-}
-
-type Bool struct {
-	wg  *sync.WaitGroup
-	res bool
-}
-
-func NewBool() *Bool {
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	return &Bool{wg: wg}
-}
-
-func (l *Bool) Set(v bool) {
-	l.res = v
-	l.wg.Done()
-}
-
-func (l *Bool) Wait() bool {
-	l.wg.Wait()
-	return l.res
-}
 
 type Lock struct {
 	n   int
 	c   chan struct{}
 	mut sync.Mutex
+}
+
+func NewLock(n int) *Lock {
+	return &Lock{
+		n: n,
+		c: make(chan struct{}),
+	}
 }
 
 func (l *Lock) claim() {
@@ -133,13 +39,6 @@ func (l *Lock) wait() <-chan struct{} {
 	return l.c
 }
 
-func NewLock(n int) Lock {
-	return Lock{
-		n: n,
-		c: make(chan struct{}),
-	}
-}
-
 type Event int
 
 const (
@@ -147,24 +46,24 @@ const (
 	EventChange
 )
 
-type Layer struct {
-	runner    Runner
-	matched   bool
-	exists    bool
-	change    bool
-	testWG    *sync.WaitGroup
-	runWG     *sync.WaitGroup
-	c         chan Event
-	done      chan struct{}
-	lock      *Lock
-}
-
 type Link struct {
-	Require bool
-	Content bool
-	Version bool
+	require bool
+	content bool
+	version bool
 	c       chan<- Event
 	done    chan struct{}
+}
+
+type Layer struct {
+	runner  Runner
+	matched bool
+	exists  bool
+	change  bool
+	testWG  *sync.WaitGroup
+	runWG   *sync.WaitGroup
+	c       chan Event
+	done    chan struct{}
+	lock    *Lock
 }
 
 type Runner interface {
@@ -179,12 +78,22 @@ func NewLayer(lock *Lock, runner Runner) *Layer {
 	runWG := &sync.WaitGroup{}
 	runWG.Add(1)
 	return &Layer{
-		runner:    runner,
-		testWG:    testWG,
-		runWG:     runWG,
-		c:         make(chan Event),
-		done:      make(chan struct{}),
-		lock:      lock,
+		runner: runner,
+		testWG: testWG,
+		runWG:  runWG,
+		c:      make(chan Event),
+		done:   make(chan struct{}),
+		lock:   lock,
+	}
+}
+
+func (l *Layer) Link(require, content, version bool) Link {
+	return Link{
+		require: require,
+		content: content,
+		version: version,
+		c:    l.c,
+		done: l.done,
 	}
 }
 
@@ -210,7 +119,7 @@ func (l *Layer) try(links []Link) {
 	defer close(l.done)
 
 	for _, link := range links {
-		if link.Require {
+		if link.require {
 			l.testWG.Wait()
 		}
 	}
@@ -229,7 +138,7 @@ func (l *Layer) try(links []Link) {
 		case <-l.lock.wait():
 			if l.change {
 				for _, link := range links {
-					if link.Require {
+					if link.require {
 						l.runWG.Wait()
 					}
 				}
@@ -244,13 +153,13 @@ func (l *Layer) tryAfter(links []Link) {
 	defer close(l.done)
 
 	for _, link := range links {
-		if link.Require {
+		if link.require {
 			l.send(link, EventRequire)
 		}
 	}
 	l.lock.release()
 	for _, link := range links {
-		if link.Require {
+		if link.require {
 			l.runWG.Wait()
 		}
 	}
@@ -280,10 +189,10 @@ func (l *Layer) trigger(links []Link, ev Event) {
 		return
 	}
 	for _, link := range links {
-		if link.Require {
+		if link.require {
 			l.send(link, EventRequire)
 		}
-		if link.Content {
+		if link.content {
 			l.send(link, EventChange)
 		}
 	}
@@ -297,10 +206,10 @@ func (l *Layer) init(links []Link) {
 			panic("invalid state: present but non-matching")
 		}
 		for _, link := range links {
-			if link.Require {
+			if link.require {
 				l.send(link, EventRequire)
 			}
-			if link.Content || link.Version {
+			if link.content || link.version {
 				l.send(link, EventChange)
 			}
 		}

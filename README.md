@@ -76,3 +76,8 @@ metadata changes during provide are accessible in provide of layers that link to
 
 PROBLEM: no cache coherency guarantee for non-exported layers, so link-contents is a lie
 IDEA: use UUID stored in layer metadata to rep unique build ID
+
+## TODO
+
+- Use IDs for content-linked layers (think about guarantees)
+- prevent concurrent cache writes

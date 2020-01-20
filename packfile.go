@@ -1,9 +1,5 @@
 package packfile
 
-import (
-	"github.com/sclevine/packfile/lsync"
-)
-
 const defaultShell = "/usr/bin/env bash"
 
 type Packfile struct {
@@ -51,23 +47,12 @@ type Require struct {
 
 type Provide struct {
 	Exec
-	WriteApp bool            `toml:"write-app"`
-	Test     *Test           `toml:"test"`
-	Links    []lsync.OldLink `toml:"links"`
-	Deps     []Dep           `toml:"deps"`
-	Env      Envs            `toml:"env"`
-	Profile  []File          `toml:"profile"`
-}
-
-type Test struct {
-	Exec
-	WriteApp bool `toml:"write-app"`
-	UseLinks bool `toml:"use-links"`
-}
-
-type Envs struct {
-	Build  []Env `toml:"build"`
-	Launch []Env `toml:"launch"`
+	WriteApp bool   `toml:"write-app"`
+	Test     *Test  `toml:"test"`
+	Links    []Link `toml:"links"`
+	Deps     []Dep  `toml:"deps"`
+	Env      Envs   `toml:"env"`
+	Profile  []File `toml:"profile"`
 }
 
 type Exec struct {
@@ -76,6 +61,31 @@ type Exec struct {
 	Path   string `toml:"path"`
 }
 
+type Test struct {
+	Exec
+	WriteApp bool `toml:"write-app"`
+	UseLinks bool `toml:"use-links"`
+}
+
+type Link struct {
+	Name         string `toml:"name"`
+	PathEnv      string `toml:"path-as"`
+	VersionEnv   string `toml:"version-as"`
+	MetadataEnv  string `toml:"metadata-as"`
+	LinkContents bool   `toml:"link-contents"`
+	LinkVersion  bool   `toml:"link-version"`
+}
+
+type Dep struct {
+	Name    string `toml:"name"`
+	Version string `toml:"version"`
+	URI     string `toml:"uri"`
+}
+
+type Envs struct {
+	Build  []Env `toml:"build"`
+	Launch []Env `toml:"launch"`
+}
 type Env struct {
 	Name  string `toml:"name"`
 	Value string `toml:"value"`
@@ -84,10 +94,4 @@ type Env struct {
 type File struct {
 	Inline string `toml:"inline"`
 	Path   string `toml:"path"`
-}
-
-type Dep struct {
-	Name    string `toml:"name"`
-	Version string `toml:"version"`
-	URI     string `toml:"uri"`
 }
