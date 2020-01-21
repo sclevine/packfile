@@ -1,6 +1,7 @@
 package packfile
 
 import (
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -68,8 +69,8 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	var layers []linkLayer
 	for i := range pf.Caches {
 		layers = append(layers, &cacheLayer{
+			Streamer: lsync.NewStreamer(),
 			cache:    &pf.Caches[i],
-			streamer: lsync.NewStreamer(),
 			shell:    shell,
 			appDir:   appDir,
 			cacheDir: filepath.Join(layersDir, pf.Caches[i].Name),
@@ -92,8 +93,8 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		defer os.RemoveAll(mdDir)
 		layerDir := filepath.Join(layersDir, lp.Name)
 		layers = append(layers, &buildLayer{
+			Streamer: lsync.NewStreamer(),
 			layer:    lp,
-			streamer: lsync.NewStreamer(),
 			requires: plan.get(lp.Name),
 			shell:    shell,
 			mdDir:    mdDir,
@@ -107,14 +108,17 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		go syncLayers[i].Run()
 	}
 	for i := range layers {
-		layers[i].Stream(stdout, stderr)
+		layers[i].Stream(os.Stdout, os.Stderr)
+	}
+	for i := range syncLayers {
+		go syncLayers[i].Wait()
 	}
 	if err := writeTOML(launchTOML{
 		Processes: pf.Processes,
 	}, filepath.Join(layersDir, "launch.toml")); err != nil {
 		return err
 	}
-	requires, err := readRequires(layers.Wait())
+	requires, err := readRequires(layers)
 	if err != nil {
 		return err
 	}
@@ -127,10 +131,11 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 }
 
 type buildLayer struct {
+	*lsync.Streamer
 	layer    *Layer
-	streamer *lsync.Streamer
 	requires []planRequire
-	links    []linkRef
+	links    []linkInfo
+	syncs    []lsync.Link
 	result   linkResult
 	shell    string
 	mdDir    string
@@ -140,14 +145,10 @@ type buildLayer struct {
 
 type linkLayer interface {
 	lsync.Runner
-	add(link linkRef)
-	info() linkInfo
-}
-
-type linkRef struct {
-	lsync.Link
-	result *linkResult
-	name   string
+	Stream(out, err io.Writer)
+	sync(sync lsync.Link)
+	link(link linkInfo)
+	info() layerInfo
 }
 
 type linkResult struct {
@@ -157,6 +158,15 @@ type linkResult struct {
 }
 
 type linkInfo struct {
+	Link
+	*linkResult
+}
+
+func (l linkInfo) layerTOML() string {
+	return l.layerPath + ".toml"
+}
+
+type layerInfo struct {
 	name   string
 	result *linkResult
 	links  []Link
@@ -172,19 +182,14 @@ func toSyncLayers(layers []linkLayer) []*lsync.Layer {
 			to := layers[j].info()
 			for _, link := range from.links {
 				if link.Name == to.name {
-					layers[i].add(linkRef{
-						out[j].Link(true, false, false),
-						to.result, to.name,
-					})
+					layers[i].link(linkInfo{link, to.result})
+					layers[i].sync(out[j].Link(true, false, false))
 				}
 			}
 			for _, link := range to.links {
 				if link.Name == from.name &&
 					(link.LinkContents || link.LinkVersion) {
-					layers[i].add(linkRef{
-						out[j].Link(false, link.LinkContents, link.LinkVersion),
-						to.result, to.name,
-					})
+					layers[i].sync(out[j].Link(false, link.LinkContents, link.LinkVersion))
 				}
 			}
 		}
@@ -193,26 +198,31 @@ func toSyncLayers(layers []linkLayer) []*lsync.Layer {
 	return out
 }
 
-func (l *buildLayer) info() linkInfo {
-	return linkInfo{
+func (l *buildLayer) info() layerInfo {
+	return layerInfo{
 		name:   l.layer.Name,
 		result: &l.result,
 		links:  l.provide().Links,
 	}
 }
 
-func (l *buildLayer) add(link linkRef) {
+func (l *buildLayer) link(link linkInfo) {
 	l.links = append(l.links, link)
 }
 
+func (l *buildLayer) sync(sync lsync.Link) {
+	l.syncs = append(l.syncs, sync)
+}
+
 func (l *buildLayer) Links() (links []lsync.Link, forTest bool) {
+	return l.syncs, l.forTest()
+}
+
+func (l *buildLayer) forTest() bool {
 	if l.provide() != nil && l.provide().Test != nil {
-		forTest = l.provide().Test.UseLinks
+		return l.provide().Test.UseLinks
 	}
-	for _, l := range l.links {
-		links = append(links, l.Link)
-	}
-	return links, forTest
+	return false
 }
 
 func (l *buildLayer) provide() *Provide {
@@ -223,20 +233,20 @@ func (l *buildLayer) provide() *Provide {
 	return provide
 }
 
+// TODO: port all error wrapping from list package: link fail, test fail, run fail
+
 func (l *buildLayer) Test() (exists, matched bool) {
-
-}
-
-func (l *buildLayer) test(results ) (exists, matched bool, err error) {
 	if l.provide() != nil {
 		if l.layer.Require == nil {
 			if err := writeMetadata(l.mdDir, l.layer.Version, l.layer.Metadata); err != nil {
-				return lsync.Result{}, err
+				l.result.err = err
+				return false, false
 			}
 		}
 		for _, req := range l.requires {
 			if err := writeMetadata(l.mdDir, req.Version, req.Metadata); err != nil {
-				return lsync.Result{}, err
+				l.result.err = err
+				return false, false
 			}
 		}
 	}
@@ -244,30 +254,31 @@ func (l *buildLayer) test(results ) (exists, matched bool, err error) {
 	env := os.Environ()
 	env = append(env, "APP="+l.appDir, "MD="+l.mdDir)
 
-	for _, res := range results {
-		if res.ForTest && res.PathEnv != "" {
-			env = append(env, res.PathEnv+"="+res.LayerPath)
+	for _, res := range l.links {
+		if l.forTest() && res.PathEnv != "" {
+			env = append(env, res.PathEnv+"="+res.layerPath)
 		}
 		if res.VersionEnv != "" {
-			lt, err := readLayerTOML(res.LayerTOML())
+			lt, err := readLayerTOML(res.layerTOML())
 			if err != nil {
-				return lsync.Result{}, err
+				l.result.err = err
+				return false, false
 			}
 			env = append(env, res.VersionEnv+"="+lt.Metadata.Version)
 		}
 		if res.MetadataEnv != "" {
-			env = append(env, res.MetadataEnv+"="+res.MetadataPath)
+			env = append(env, res.MetadataEnv+"="+res.metadataPath)
 		}
 	}
 	if l.provide() == nil || l.provide().Test == nil {
-		return lsync.Result{
-			MetadataPath: l.mdDir,
-		}, nil
+		l.result.metadataPath = l.mdDir
+		return false, false
 	}
 
 	cmd, c, err := execCmd(&l.provide().Test.Exec, l.shell)
 	if err != nil {
-		return lsync.Result{}, err
+		l.result.err = err
+		return false, false
 	}
 	defer c.Close()
 	cmd.Dir = l.appDir
@@ -276,16 +287,19 @@ func (l *buildLayer) test(results ) (exists, matched bool, err error) {
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				return lsync.Result{}, CodeError(status.ExitStatus())
+				l.result.err = CodeError(status.ExitStatus())
+				return false, false
 			}
 		}
-		return lsync.Result{}, err
+		l.result.err = err
+		return false, false
 	}
 
 	layerTOMLPath := l.layerDir + ".toml"
 	layerTOML, err := readLayerTOML(layerTOMLPath)
 	if err != nil {
-		return lsync.Result{}, err
+		l.result.err = err
+		return false, false
 	}
 	layerTOML.Cache = l.layer.Store
 	layerTOML.Build = l.layer.Expose
@@ -300,46 +314,45 @@ func (l *buildLayer) test(results ) (exists, matched bool, err error) {
 		layerTOML.Metadata.Version = ""
 		skipVersion = true
 	} else {
-		return lsync.Result{}, err
+		l.result.err = err
+		return false, false
 	}
 	if err := writeTOML(layerTOML, layerTOMLPath); err != nil {
-		return lsync.Result{}, err
+		l.result.err = err
+		return false, false
 	}
 
-	for _, res := range results {
+	for _, res := range l.links {
 		if (res.LinkContents && !res.Preserved) ||
 			(res.LinkVersion && !res.SameVersion) {
 			if err := os.RemoveAll(l.layerDir); err != nil {
-				return lsync.Result{}, err
+				l.result.err = err
+				return false, false
 			}
-			return lsync.Result{
-				MetadataPath: l.mdDir,
-			}, nil
+			l.result.metadataPath = l.mdDir
+			return false, false
 		}
 	}
 
 	if !skipVersion && newVersion == oldVersion {
 		if _, err := os.Stat(l.layerDir); xerrors.Is(err, os.ErrNotExist) {
 			if l.layer.Expose || l.layer.Store {
-				return lsync.Result{
-					MetadataPath: l.mdDir,
-				}, nil
+				l.result.metadataPath = l.mdDir
+				return false, false
 			}
-			return lsync.Result{
-				MetadataPath: l.mdDir,
-			}, layer.ErrNotNeeded
+			l.result.metadataPath = l.mdDir
+			return false, true
 		}
-		return lsync.Result{
-			LayerPath:    l.layerDir,
-			MetadataPath: l.mdDir,
-		}, layer.ErrExists
+		l.result.layerPath = l.layerDir
+		l.result.metadataPath = l.mdDir
+		return true, true
 	}
 	if err := os.RemoveAll(l.layerDir); err != nil {
-		return lsync.Result{}, err
+		l.result.err = err
+		return false, false
 	}
-	return lsync.Result{
-		MetadataPath: l.mdDir,
-	}, nil
+	l.result.metadataPath = l.mdDir
+	return false, false
 }
 
 func (l *buildLayer) mdValue(key string) (string, error) {
@@ -351,7 +364,10 @@ func (l *buildLayer) mdValue(key string) (string, error) {
 	return string(value), err
 }
 
-func (l *buildLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
+func (l *buildLayer) Run() {
+	if l.result.err != nil {
+		return
+	}
 	env := os.Environ()
 	env = append(env, "APP="+l.appDir, "MD="+l.mdDir, "LAYER="+l.layerDir)
 
@@ -404,24 +420,28 @@ func (l *buildLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
 }
 
 type cacheLayer struct {
+	*lsync.Streamer
 	cache    *Cache
-	streamer *lsync.Streamer
 	result   linkResult
 	shell    string
 	appDir   string
 	cacheDir string
 }
 
-func (l *cacheLayer) info() linkInfo {
-	return linkInfo{
+func (l *cacheLayer) info() layerInfo {
+	return layerInfo{
 		name:   l.cache.Name,
 		result: &l.result,
 	}
 }
 
-func (l *cacheLayer) add(_ linkRef) {}
+func (l *cacheLayer) link(_ linkInfo) {}
 
-func (l *cacheLayer) Run(_ []lsync.LinkResult) (lsync.Result, error) {
+func (l *cacheLayer) sync(sync lsync.Link) {
+	l.syncs = append(l.syncs, sync)
+}
+
+func (l *cacheLayer) Run() {
 	env := os.Environ()
 	env = append(env, "APP="+l.appDir, "CACHE="+l.cacheDir)
 

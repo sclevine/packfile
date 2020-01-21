@@ -50,6 +50,8 @@ type Link struct {
 	require bool
 	content bool
 	version bool
+	testWG  *sync.WaitGroup
+	runWG   *sync.WaitGroup
 	c       chan<- Event
 	done    chan struct{}
 }
@@ -92,8 +94,10 @@ func (l *Layer) Link(require, content, version bool) Link {
 		require: require,
 		content: content,
 		version: version,
-		c:    l.c,
-		done: l.done,
+		testWG:  l.testWG,
+		runWG:   l.runWG,
+		c:       l.c,
+		done:    l.done,
 	}
 }
 
@@ -124,7 +128,7 @@ func (l *Layer) try(links []Link) {
 
 	for _, link := range links {
 		if link.require {
-			l.testWG.Wait()
+			link.testWG.Wait()
 		}
 	}
 
@@ -143,12 +147,13 @@ func (l *Layer) try(links []Link) {
 			if l.change {
 				for _, link := range links {
 					if link.require {
-						l.runWG.Wait()
+						link.runWG.Wait()
 					}
 				}
 				l.runner.Run()
 			}
 			l.runWG.Done()
+			return
 		}
 	}
 }
@@ -164,7 +169,7 @@ func (l *Layer) tryAfter(links []Link) {
 	l.lock.release()
 	for _, link := range links {
 		if link.require {
-			l.runWG.Wait()
+			link.runWG.Wait()
 		}
 	}
 
@@ -183,6 +188,7 @@ func (l *Layer) tryAfter(links []Link) {
 				l.runner.Run()
 			}
 			l.runWG.Done()
+			return
 		}
 	}
 }
