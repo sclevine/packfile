@@ -97,13 +97,8 @@ func (l *Layer) Link(require, content, version bool) Link {
 	}
 }
 
-func (l *Layer) send(link Link, ev Event) {
-	l.lock.claim()
-	select {
-	case link.c <- ev:
-	case <-link.done:
-		l.lock.release()
-	}
+func (l *Layer) Wait() {
+	<-l.done
 }
 
 func (l *Layer) Run() {
@@ -112,6 +107,15 @@ func (l *Layer) Run() {
 		l.tryAfter(links)
 	} else {
 		l.try(links)
+	}
+}
+
+func (l *Layer) send(link Link, ev Event) {
+	l.lock.claim()
+	select {
+	case link.c <- ev:
+	case <-link.done:
+		l.lock.release()
 	}
 }
 

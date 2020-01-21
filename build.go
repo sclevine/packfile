@@ -65,11 +65,11 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	if _, err := toml.DecodeFile(planPath, &plan); err != nil {
 		return err
 	}
-	var list []lsync.Runner
+	var layers []linkLayer
 	for i := range pf.Caches {
-		list = append(list, &cacheLayer{
-			Streamer: lsync.NewStreamer(),
+		layers = append(layers, &cacheLayer{
 			cache:    &pf.Caches[i],
+			streamer: lsync.NewStreamer(),
 			shell:    shell,
 			appDir:   appDir,
 			cacheDir: filepath.Join(layersDir, pf.Caches[i].Name),
@@ -80,36 +80,41 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		if lp.Provide != nil && lp.Build != nil {
 			return xerrors.Errorf("layer '%s' has both provide and build sections", lp.Name)
 		}
+		// TODO: don't allow provide() to return nil, add test() with same idea?
 		if lp.Build == nil && lp.Provide == nil && lp.Require != nil {
 			continue
 		}
-		// FIXME: move metadata dir into individual layer Init/Cleanup methods
+		// TODO: move metadata dir into individual layer Init/Cleanup methods
 		mdDir, err := ioutil.TempDir("", "packfile."+lp.Name)
 		if err != nil {
 			return err
 		}
 		defer os.RemoveAll(mdDir)
 		layerDir := filepath.Join(layersDir, lp.Name)
-		list = list.Add(&buildLayer{
-			Streamer: lsync.NewStreamer(),
+		layers = append(layers, &buildLayer{
 			layer:    lp,
+			streamer: lsync.NewStreamer(),
+			requires: plan.get(lp.Name),
 			shell:    shell,
 			mdDir:    mdDir,
 			appDir:   appDir,
 			layerDir: layerDir,
-			requires: plan.get(lp.Name),
 		})
 	}
-	lock := lsync.NewLock(len(list))
+	syncLayers := toSyncLayers(layers)
 
-	list.Run()
-	list.Stream(os.Stdout, os.Stderr)
+	for i := range syncLayers {
+		go syncLayers[i].Run()
+	}
+	for i := range layers {
+		layers[i].Stream(stdout, stderr)
+	}
 	if err := writeTOML(launchTOML{
 		Processes: pf.Processes,
 	}, filepath.Join(layersDir, "launch.toml")); err != nil {
 		return err
 	}
-	requires, err := readRequires(list.Wait())
+	requires, err := readRequires(layers.Wait())
 	if err != nil {
 		return err
 	}
@@ -122,21 +127,27 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 }
 
 type buildLayer struct {
-	*lsync.Streamer
 	layer    *Layer
+	streamer *lsync.Streamer
+	requires []planRequire
+	links    []linkRef
 	result   linkResult
-	links    []buildLink
 	shell    string
 	mdDir    string
 	appDir   string
 	layerDir string
-	requires []planRequire
 }
 
-type buildLink struct {
-	name string
+type linkLayer interface {
+	lsync.Runner
+	add(link linkRef)
+	info() linkInfo
+}
+
+type linkRef struct {
 	lsync.Link
-	*linkResult
+	result *linkResult
+	name   string
 }
 
 type linkResult struct {
@@ -145,81 +156,53 @@ type linkResult struct {
 	err          error
 }
 
-func makeLayers(list []linkRunner) []*lsync.Layer {
-	lock := lsync.NewLock(len(list))
-	var layers []*lsync.Layer
-	for i := range list {
-		for j := range list[:i] {
-			for _, link := range list[i].linkList() {
-				if link.Name == list[j].linkName() {
-					list[i].addLink(buildLink{
-						link.Name,
-						layers[j].Link(true, false, false),
-						list[j].linkResult(),
+type linkInfo struct {
+	name   string
+	result *linkResult
+	links  []Link
+}
+
+// TODO: separate package, but only after moving Link to separate package
+func toSyncLayers(layers []linkLayer) []*lsync.Layer {
+	lock := lsync.NewLock(len(layers))
+	var out []*lsync.Layer
+	for i := range layers {
+		from := layers[i].info()
+		for j := range layers[:i] {
+			to := layers[j].info()
+			for _, link := range from.links {
+				if link.Name == to.name {
+					layers[i].add(linkRef{
+						out[j].Link(true, false, false),
+						to.result, to.name,
 					})
 				}
 			}
-			for _, link := range list[j].linkList() {
-				if link.Name == list[i].linkName() &&
+			for _, link := range to.links {
+				if link.Name == from.name &&
 					(link.LinkContents || link.LinkVersion) {
-					list[i].addLink(buildLink{
-						list[j].linkName(),
-						layers[j].Link(false, link.LinkContents, link.LinkVersion),
-						list[j].linkResult(),
+					layers[i].add(linkRef{
+						out[j].Link(false, link.LinkContents, link.LinkVersion),
+						to.result, to.name,
 					})
 				}
 			}
 		}
-		layers = append(layers, lsync.NewLayer(lock, list[i]))
+		out = append(out, lsync.NewLayer(lock, layers[i]))
 	}
-	return layers
+	return out
 }
 
-type linkRunner interface {
-	lsync.Runner
-	linkName() string
-	linkResult() *linkResult
-	linkList() []Link
-	addLink(link buildLink)
+func (l *buildLayer) info() linkInfo {
+	return linkInfo{
+		name:   l.layer.Name,
+		result: &l.result,
+		links:  l.provide().Links,
+	}
 }
 
-func (l *buildLayer) linkName() string {
-	return l.layer.Name
-}
-
-func (l *buildLayer) linkResult() *linkResult {
-	return &l.result
-}
-
-func (l *buildLayer) linkList() []Link {
-	return l.provide().Links
-}
-
-func (l *buildLayer) addLink(link buildLink) {
+func (l *buildLayer) add(link linkRef) {
 	l.links = append(l.links, link)
-}
-
-func (l *buildLayer) dothing(list []linkRunner, layers []*lsync.Layer) {
-	for j := range list {
-		for _, link := range l.provide().Links {
-			if link.Name == list[j].linkName() {
-				l.links = append(l.links, buildLink{
-					link.Name,
-					layers[j].Link(true, false, false),
-					list[j].linkResult(),
-				})
-			}
-		}
-		for _, link := range list[j].linkList() {
-			if link.Name == l.linkName() && (link.LinkContents || link.LinkVersion) {
-				l.links = append(l.links, buildLink{
-					list[j].linkName(),
-					layers[j].Link(false, link.LinkContents, link.LinkVersion),
-					list[j].linkResult(),
-				})
-			}
-		}
-	}
 }
 
 func (l *buildLayer) Links() (links []lsync.Link, forTest bool) {
@@ -240,7 +223,11 @@ func (l *buildLayer) provide() *Provide {
 	return provide
 }
 
-func (l *buildLayer) Test(results []lsync.LinkResult) (lsync.Result, error) {
+func (l *buildLayer) Test() (exists, matched bool) {
+
+}
+
+func (l *buildLayer) test(results ) (exists, matched bool, err error) {
 	if l.provide() != nil {
 		if l.layer.Require == nil {
 			if err := writeMetadata(l.mdDir, l.layer.Version, l.layer.Metadata); err != nil {
@@ -417,12 +404,22 @@ func (l *buildLayer) Run(results []lsync.LinkResult) (lsync.Result, error) {
 }
 
 type cacheLayer struct {
-	*lsync.Streamer
 	cache    *Cache
+	streamer *lsync.Streamer
+	result   linkResult
 	shell    string
 	appDir   string
 	cacheDir string
 }
+
+func (l *cacheLayer) info() linkInfo {
+	return linkInfo{
+		name:   l.cache.Name,
+		result: &l.result,
+	}
+}
+
+func (l *cacheLayer) add(_ linkRef) {}
 
 func (l *cacheLayer) Run(_ []lsync.LinkResult) (lsync.Result, error) {
 	env := os.Environ()

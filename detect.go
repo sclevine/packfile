@@ -92,17 +92,18 @@ func eachFile(dir string, fn func(name, path string) error) error {
 	return nil
 }
 
-func readRequires(results []layer.FinalResult) ([]planRequire, error) {
+func readRequires(layers []linkLayer) ([]planRequire, error) {
 	var requires []planRequire
-	for _, res := range results {
-		if IsFail(res.Err) {
+	for _, layer := range layers {
+		info := layer.info()
+		if IsFail(info.result.err) {
 			continue
-		} else if res.Err != nil {
-			return nil, xerrors.Errorf("error for layer '%s': %w", res.Name, res.Err)
+		} else if info.result.err != nil {
+			return nil, xerrors.Errorf("error for layer '%s': %w", info.name, info.result.err)
 		}
-		req, err := readRequire(res.Name, res.MetadataPath)
+		req, err := readRequire(info.name, info.result.metadataPath)
 		if err != nil {
-			return nil, xerrors.Errorf("invalid metadata for layer '%s': %w", res.Name, err)
+			return nil, xerrors.Errorf("invalid metadata for layer '%s': %w", info.name, err)
 		}
 		requires = append(requires, req)
 	}
