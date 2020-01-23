@@ -11,7 +11,6 @@ import (
 	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
 
-	"github.com/sclevine/packfile/layer"
 	"github.com/sclevine/packfile/lsync"
 )
 
@@ -40,7 +39,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 		shell = s
 	}
 	var provides []planProvide
-	list := layer.NewList()
+	var layers []linkLayer
 	for i := range pf.Layers {
 		lp := &pf.Layers[i]
 		if lp.Provide != nil || lp.Build != nil {
@@ -54,7 +53,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 			return err
 		}
 		defer os.RemoveAll(mdDir)
-		list = list.Add(&detectLayer{
+		layers = append(layers, &detectLayer{
 			Streamer: lsync.NewStreamer(),
 			layer:    lp,
 			shell:    shell,
@@ -62,9 +61,17 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 			appDir:   appDir,
 		})
 	}
-	list.Run()
-	list.Stream(os.Stdout, os.Stderr)
-	requires, err := readRequires(list.Wait())
+	syncLayers := toSyncLayers(layers)
+	for i := range syncLayers {
+		go syncLayers[i].Run()
+	}
+	for i := range layers {
+		layers[i].Stream(os.Stdout, os.Stderr)
+	}
+	for i := range syncLayers {
+		syncLayers[i].Wait()
+	}
+	requires, err := readRequires(layers)
 	if err != nil {
 		return err
 	}
@@ -92,6 +99,7 @@ func eachFile(dir string, fn func(name, path string) error) error {
 	return nil
 }
 
+// TODO: consider moving to another package with toSyncLayers
 func readRequires(layers []linkLayer) ([]planRequire, error) {
 	var requires []planRequire
 	for _, layer := range layers {
@@ -101,7 +109,7 @@ func readRequires(layers []linkLayer) ([]planRequire, error) {
 		} else if info.result.err != nil {
 			return nil, xerrors.Errorf("error for layer '%s': %w", info.name, info.result.err)
 		}
-		req, err := readRequire(info.name, info.result.metadataPath)
+		req, err := readRequire(info.name, info.result.mdDir)
 		if err != nil {
 			return nil, xerrors.Errorf("invalid metadata for layer '%s': %w", info.name, err)
 		}
@@ -135,48 +143,63 @@ func readRequire(name, path string) (planRequire, error) {
 type detectLayer struct {
 	*lsync.Streamer
 	layer  *Layer
+	result linkResult
 	shell  string
 	mdDir  string
 	appDir string
 }
 
-func (d *detectLayer) Name() string {
-	return d.layer.Name
-}
-
-func (d *detectLayer) Links() []Link {
-	return nil
-}
-
-func (d *detectLayer) Run(_ []lsync.LinkResult) (lsync.Result, error) {
-	if err := writeMetadata(d.mdDir, d.layer.Version, d.layer.Metadata); err != nil {
-		return lsync.Result{}, err
+func (l *detectLayer) info() layerInfo {
+	return layerInfo{
+		name:   l.layer.Name,
+		result: &l.result,
 	}
-	if d.layer.Require == nil {
-		return lsync.Result{MetadataPath: d.mdDir}, nil
+}
+
+func (l *detectLayer) link(_ linkInfo) {}
+
+func (l *detectLayer) sync(_ lsync.Link) {}
+
+func (l *detectLayer) Links() (links []lsync.Link, forTest bool) {
+	return nil, false
+}
+
+func (l *detectLayer) Test() (exists, matched bool) {
+	return false, false
+}
+
+func (l *detectLayer) Run() {
+	if err := writeMetadata(l.mdDir, l.layer.Version, l.layer.Metadata); err != nil {
+		l.result.err = err
+		return
+	}
+	if l.layer.Require == nil {
+		l.result.mdDir = l.mdDir
+		return
 	}
 
 	env := os.Environ()
-	env = append(env, "APP="+d.appDir, "MD="+d.mdDir)
-	cmd, c, err := execCmd(&d.layer.Require.Exec, d.shell)
+	env = append(env, "APP="+l.appDir, "MD="+l.mdDir)
+	cmd, c, err := execCmd(&l.layer.Require.Exec, l.shell)
 	if err != nil {
-		return lsync.Result{}, err
+		l.result.err = err
+		return
 	}
 	defer c.Close()
-	cmd.Dir = d.appDir
+	cmd.Dir = l.appDir
 	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = d.Streamer.Writers()
+	cmd.Stdout, cmd.Stderr = l.Streamer.Writers()
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				return lsync.Result{}, CodeError(status.ExitStatus())
-
+				l.result.err = CodeError(status.ExitStatus())
+				return
 			}
 		}
-		return lsync.Result{}, err
+		l.result.err = err
+		return
 	}
-
-	return lsync.Result{MetadataPath: d.mdDir}, nil
+	l.result.mdDir = l.mdDir
 }
 
 type CodeError int

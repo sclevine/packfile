@@ -11,7 +11,6 @@ import (
 	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
 
-	"github.com/sclevine/packfile/layer"
 	"github.com/sclevine/packfile/lsync"
 )
 
@@ -111,7 +110,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		layers[i].Stream(os.Stdout, os.Stderr)
 	}
 	for i := range syncLayers {
-		go syncLayers[i].Wait()
+		syncLayers[i].Wait()
 	}
 	if err := writeTOML(launchTOML{
 		Processes: pf.Processes,
@@ -152,9 +151,9 @@ type linkLayer interface {
 }
 
 type linkResult struct {
-	layerPath    string
-	metadataPath string
-	err          error
+	layerDir string
+	mdDir    string
+	err      error
 }
 
 type linkInfo struct {
@@ -163,7 +162,7 @@ type linkInfo struct {
 }
 
 func (l linkInfo) layerTOML() string {
-	return l.layerPath + ".toml"
+	return l.layerDir + ".toml"
 }
 
 type layerInfo struct {
@@ -233,7 +232,9 @@ func (l *buildLayer) provide() *Provide {
 	return provide
 }
 
-// TODO: port all error wrapping from list package: link fail, test fail, run fail
+func (l *buildLayer) layerTOML() string {
+	return l.layerDir + ".toml"
+}
 
 func (l *buildLayer) Test() (exists, matched bool) {
 	if l.provide() != nil {
@@ -254,24 +255,28 @@ func (l *buildLayer) Test() (exists, matched bool) {
 	env := os.Environ()
 	env = append(env, "APP="+l.appDir, "MD="+l.mdDir)
 
-	for _, res := range l.links {
-		if l.forTest() && res.PathEnv != "" {
-			env = append(env, res.PathEnv+"="+res.layerPath)
+	for _, link := range l.links {
+		if link.err != nil {
+			l.result.err = xerrors.Errorf("link '%s' failed: %w", link.Name, link.err)
+			return false, false
 		}
-		if res.VersionEnv != "" {
-			lt, err := readLayerTOML(res.layerTOML())
+		if l.forTest() && link.PathEnv != "" {
+			env = append(env, link.PathEnv+"="+link.layerDir)
+		}
+		if link.VersionEnv != "" {
+			lt, err := readLayerTOML(link.layerTOML())
 			if err != nil {
 				l.result.err = err
 				return false, false
 			}
-			env = append(env, res.VersionEnv+"="+lt.Metadata.Version)
+			env = append(env, link.VersionEnv+"="+lt.Metadata.Version)
 		}
-		if res.MetadataEnv != "" {
-			env = append(env, res.MetadataEnv+"="+res.metadataPath)
+		if link.MetadataEnv != "" {
+			env = append(env, link.MetadataEnv+"="+link.mdDir)
 		}
 	}
 	if l.provide() == nil || l.provide().Test == nil {
-		l.result.metadataPath = l.mdDir
+		l.result.mdDir = l.mdDir
 		return false, false
 	}
 
@@ -322,36 +327,20 @@ func (l *buildLayer) Test() (exists, matched bool) {
 		return false, false
 	}
 
-	for _, res := range l.links {
-		if (res.LinkContents && !res.Preserved) ||
-			(res.LinkVersion && !res.SameVersion) {
-			if err := os.RemoveAll(l.layerDir); err != nil {
-				l.result.err = err
-				return false, false
-			}
-			l.result.metadataPath = l.mdDir
-			return false, false
-		}
-	}
-
 	if !skipVersion && newVersion == oldVersion {
 		if _, err := os.Stat(l.layerDir); xerrors.Is(err, os.ErrNotExist) {
 			if l.layer.Expose || l.layer.Store {
-				l.result.metadataPath = l.mdDir
+				l.result.mdDir = l.mdDir
 				return false, false
 			}
-			l.result.metadataPath = l.mdDir
+			l.result.mdDir = l.mdDir
 			return false, true
 		}
-		l.result.layerPath = l.layerDir
-		l.result.metadataPath = l.mdDir
+		l.result.layerDir = l.layerDir
+		l.result.mdDir = l.mdDir
 		return true, true
 	}
-	if err := os.RemoveAll(l.layerDir); err != nil {
-		l.result.err = err
-		return false, false
-	}
-	l.result.metadataPath = l.mdDir
+	l.result.mdDir = l.mdDir
 	return false, false
 }
 
@@ -368,37 +357,47 @@ func (l *buildLayer) Run() {
 	if l.result.err != nil {
 		return
 	}
+	if err := os.RemoveAll(l.layerDir); err != nil {
+		l.result.err = err
+		return
+	}
 	env := os.Environ()
 	env = append(env, "APP="+l.appDir, "MD="+l.mdDir, "LAYER="+l.layerDir)
 
-	for _, res := range results {
-		if res.PathEnv != "" {
-			env = append(env, res.PathEnv+"="+res.LayerPath)
+	for _, link := range l.links {
+		if link.err != nil {
+			l.result.err = xerrors.Errorf("link '%s' failed: %w", link.Name, link.err)
+			return
 		}
-		if res.VersionEnv != "" {
-			lt, err := readLayerTOML(res.LayerTOML())
+		if link.PathEnv != "" {
+			env = append(env, link.PathEnv+"="+link.layerDir)
+		}
+		if link.VersionEnv != "" {
+			lt, err := readLayerTOML(link.layerTOML())
 			if err != nil {
-				return lsync.Result{}, err
+				l.result.err = err
+				return
 			}
-			env = append(env, res.VersionEnv+"="+lt.Metadata.Version)
+			env = append(env, link.VersionEnv+"="+lt.Metadata.Version)
 		}
-		if res.MetadataEnv != "" {
-			env = append(env, res.MetadataEnv+"="+res.MetadataPath)
+		if link.MetadataEnv != "" {
+			env = append(env, link.MetadataEnv+"="+link.mdDir)
 		}
 	}
 
 	if err := os.MkdirAll(l.layerDir, 0777); err != nil {
-		return lsync.Result{}, err
+		l.result.err = err
+		return
 	}
 	if l.provide() == nil {
-		return lsync.Result{
-			LayerPath:    l.layerDir,
-			MetadataPath: l.mdDir,
-		}, nil
+		l.result.layerDir = l.layerDir
+		l.result.mdDir = l.mdDir
+		return
 	}
 	cmd, c, err := execCmd(&l.provide().Exec, l.shell)
 	if err != nil {
-		return lsync.Result{}, err
+		l.result.err = err
+		return
 	}
 	defer c.Close()
 	cmd.Dir = l.appDir
@@ -407,21 +406,21 @@ func (l *buildLayer) Run() {
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				return lsync.Result{}, CodeError(status.ExitStatus())
+				l.result.err = CodeError(status.ExitStatus())
+				return
 			}
 		}
-		return lsync.Result{}, err
+		l.result.err = err
+		return
 	}
-
-	return lsync.Result{
-		LayerPath:    l.layerDir,
-		MetadataPath: l.mdDir,
-	}, nil
+	l.result.layerDir = l.layerDir
+	l.result.mdDir = l.mdDir
 }
 
 type cacheLayer struct {
 	*lsync.Streamer
 	cache    *Cache
+	syncs    []lsync.Link
 	result   linkResult
 	shell    string
 	appDir   string
@@ -441,21 +440,43 @@ func (l *cacheLayer) sync(sync lsync.Link) {
 	l.syncs = append(l.syncs, sync)
 }
 
+func (l *cacheLayer) Links() (links []lsync.Link, forTest bool) {
+	return l.syncs, false
+}
+
+func (l *cacheLayer) Test() (exists, matched bool) {
+	if err := writeTOML(layerTOML{Cache: true}, l.cacheDir + ".toml"); err != nil {
+		l.result.err = err
+		return false, false
+	}
+	if _, err := os.Stat(l.cacheDir); xerrors.Is(err, os.ErrNotExist) {
+		return false, false
+	} else if err != nil {
+		l.result.err = err
+		return false, false
+	}
+	return true, true
+}
+
 func (l *cacheLayer) Run() {
+	if l.result.err != nil {
+		return
+	}
 	env := os.Environ()
 	env = append(env, "APP="+l.appDir, "CACHE="+l.cacheDir)
 
 	if err := os.MkdirAll(l.cacheDir, 0777); err != nil {
-		return lsync.Result{}, err
+		l.result.err = err
+		return
 	}
 	if l.cache.Setup == nil {
-		return lsync.Result{
-			LayerPath: l.cacheDir,
-		}, nil
+		l.result.layerDir = l.cacheDir
+		return
 	}
 	cmd, c, err := execCmd(l.cache.Setup, l.shell)
 	if err != nil {
-		return lsync.Result{}, err
+		l.result.err = err
+		return
 	}
 	defer c.Close()
 	cmd.Dir = l.appDir
@@ -464,21 +485,14 @@ func (l *cacheLayer) Run() {
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				return lsync.Result{}, CodeError(status.ExitStatus())
+				l.result.err = CodeError(status.ExitStatus())
+				return
 			}
 		}
-		return lsync.Result{}, err
+		l.result.err = err
+		return
 	}
 
-	return lsync.Result{
-		LayerPath: l.cacheDir,
-	}, nil
-}
-
-func (l *cacheLayer) Name() string {
-	return l.cache.Name
-}
-
-func (l *cacheLayer) Links() []Link {
-	return nil
+	l.result.layerDir = l.cacheDir
+	return
 }
