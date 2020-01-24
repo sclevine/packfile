@@ -123,7 +123,7 @@ md5sum package-lock.json | cut -d' ' -f1 > "$MD/version"
 write-app = true
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
-mv node_modules “$LAYER/"
+mv node_modules "$LAYER/"
 mkdir "$LAYER/env"
 echo "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
 """

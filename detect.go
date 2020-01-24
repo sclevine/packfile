@@ -63,7 +63,10 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 	}
 	syncLayers := toSyncLayers(layers)
 	for i := range syncLayers {
-		go syncLayers[i].Run()
+		go func(i int) {
+			defer layers[i].Close()
+			syncLayers[i].Run()
+		}(i)
 	}
 	for i := range layers {
 		layers[i].Stream(os.Stdout, os.Stderr)
@@ -89,7 +92,7 @@ func eachFile(dir string, fn func(name, path string) error) error {
 		return err
 	}
 	for _, f := range files {
-		if !f.IsDir() {
+		if f.IsDir() {
 			continue
 		}
 		if err := fn(f.Name(), filepath.Join(dir, f.Name())); err != nil {
@@ -108,6 +111,9 @@ func readRequires(layers []linkLayer) ([]planRequire, error) {
 			continue
 		} else if info.result.err != nil {
 			return nil, xerrors.Errorf("error for layer '%s': %w", info.name, info.result.err)
+		}
+		if info.result.mdDir == "" {
+			continue
 		}
 		req, err := readRequire(info.name, info.result.mdDir)
 		if err != nil {

@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/BurntSushi/toml"
+	"github.com/buildpacks/lifecycle"
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile/lsync"
@@ -102,9 +104,11 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		})
 	}
 	syncLayers := toSyncLayers(layers)
-
 	for i := range syncLayers {
-		go syncLayers[i].Run()
+		go func(i int) {
+			defer layers[i].Close()
+			syncLayers[i].Run()
+		}(i)
 	}
 	for i := range layers {
 		layers[i].Stream(os.Stdout, os.Stderr)
@@ -145,6 +149,7 @@ type buildLayer struct {
 type linkLayer interface {
 	lsync.Runner
 	Stream(out, err io.Writer)
+	Close()
 	sync(sync lsync.Link)
 	link(link linkInfo)
 	info() layerInfo
@@ -275,6 +280,14 @@ func (l *buildLayer) Test() (exists, matched bool) {
 			env = append(env, link.MetadataEnv+"="+link.mdDir)
 		}
 	}
+	if l.forTest() {
+		var err error
+		env, err = setupEnv(env, l.links)
+		if err != nil {
+			l.result.err = err
+			return
+		}
+	}
 	if l.provide() == nil || l.provide().Test == nil {
 		l.result.mdDir = l.mdDir
 		return false, false
@@ -384,6 +397,12 @@ func (l *buildLayer) Run() {
 			env = append(env, link.MetadataEnv+"="+link.mdDir)
 		}
 	}
+	var err error
+	env, err = setupEnv(env, l.links)
+	if err != nil {
+		l.result.err = err
+		return
+	}
 
 	if err := os.MkdirAll(l.layerDir, 0777); err != nil {
 		l.result.err = err
@@ -445,7 +464,7 @@ func (l *cacheLayer) Links() (links []lsync.Link, forTest bool) {
 }
 
 func (l *cacheLayer) Test() (exists, matched bool) {
-	if err := writeTOML(layerTOML{Cache: true}, l.cacheDir + ".toml"); err != nil {
+	if err := writeTOML(layerTOML{Cache: true}, l.cacheDir+".toml"); err != nil {
 		l.result.err = err
 		return false, false
 	}
@@ -495,4 +514,70 @@ func (l *cacheLayer) Run() {
 
 	l.result.layerDir = l.cacheDir
 	return
+}
+
+func setupEnv(env []string, links []linkInfo) ([]string, error) {
+	lcEnv := &lifecycle.Env{
+		LookupEnv: func(key string) (string, bool) {
+			for i := range env {
+				kv := strings.SplitN(env[i], "=", 2)
+				if len(kv) == 2 && kv[0] == key {
+					return kv[1], true
+				}
+			}
+			return "", false
+		},
+		Getenv: func(key string) string {
+			for i := range env {
+				kv := strings.SplitN(env[i], "=", 2)
+				if len(kv) == 2 && kv[0] == key {
+					return kv[1]
+				}
+			}
+			return ""
+		},
+		Setenv:  func(key, value string) error {
+			i := 0
+			for _, e := range env {
+				kv := strings.SplitN(e, "=", 2)
+				if len(kv) == 2 && kv[0] != key {
+					env[i] = e
+					i++
+				}
+			}
+			env = append(env[:i], key+"="+value)
+			return nil
+		},
+		Unsetenv: func(key string) error {
+			i := 0
+			for _, e := range env {
+				kv := strings.SplitN(e, "=", 2)
+				if len(kv) == 2 && kv[0] != key {
+					env[i] = e
+					i++
+				}
+			}
+			env = env[:i]
+			return nil
+		},
+		Environ:  func() []string {
+			return env
+		},
+		Map:      lifecycle.POSIXBuildEnv,
+	}
+
+	for _, link := range links {
+		if err := lcEnv.AddRootDir(link.layerDir); err != nil {
+			return nil, err
+		}
+	}
+	for _, link := range links {
+		if err := lcEnv.AddEnvDir(filepath.Join(link.layerDir, "env")); err != nil {
+			return nil, err
+		}
+		if err := lcEnv.AddEnvDir(filepath.Join(link.layerDir, "env.build")); err != nil {
+			return nil, err
+		}
+	}
+	return env, nil
 }

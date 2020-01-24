@@ -1,12 +1,13 @@
 package main
 
 import (
-	"github.com/sclevine/packfile"
 	"log"
 	"os"
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/sclevine/packfile"
 )
 
 func main() {
@@ -38,4 +39,3 @@ func main() {
 		log.Fatal("Error: command name must be build or detect")
 	}
 }
-
