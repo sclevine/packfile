@@ -11,7 +11,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
 
-	"github.com/sclevine/packfile/lsync"
+	"github.com/sclevine/packfile/sync"
 )
 
 type planProvide struct {
@@ -54,7 +54,7 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 		}
 		defer os.RemoveAll(mdDir)
 		layers = append(layers, &detectLayer{
-			streamer: lsync.NewStreamer(),
+			streamer: sync.NewStreamer(),
 			linkShare: linkShare{
 				mdDir:    mdDir,
 			},
@@ -165,9 +165,9 @@ func (l *detectLayer) info() layerInfo {
 
 func (l *detectLayer) link(_ linkInfo) {}
 
-func (l *detectLayer) sync(_ lsync.Link) {}
+func (l *detectLayer) sync(_ sync.Link) {}
 
-func (l *detectLayer) Links() (links []lsync.Link, forTest bool) {
+func (l *detectLayer) Links() (links []sync.Link, forTest bool) {
 	return nil, false
 }
 

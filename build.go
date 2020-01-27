@@ -13,7 +13,7 @@ import (
 	"github.com/buildpacks/lifecycle"
 	"golang.org/x/xerrors"
 
-	"github.com/sclevine/packfile/lsync"
+	"github.com/sclevine/packfile/sync"
 )
 
 type buildPlan struct {
@@ -70,7 +70,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 	var layers []linkLayer
 	for i := range pf.Caches {
 		layers = append(layers, &cacheLayer{
-			streamer: lsync.NewStreamer(),
+			streamer: sync.NewStreamer(),
 			linkShare: linkShare{
 				layerDir: filepath.Join(layersDir, pf.Caches[i].Name),
 			},
@@ -96,7 +96,7 @@ func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
 		defer os.RemoveAll(mdDir)
 		layerDir := filepath.Join(layersDir, lp.Name)
 		layers = append(layers, &buildLayer{
-			streamer: lsync.NewStreamer(),
+			streamer: sync.NewStreamer(),
 			linkShare: linkShare{
 				mdDir:    mdDir,
 				layerDir: layerDir,
@@ -149,16 +149,16 @@ type buildLayer struct {
 	layer    *Layer
 	requires []planRequire
 	links    []linkInfo
-	syncs    []lsync.Link
+	syncs    []sync.Link
 	shell    string
 	appDir   string
 }
 
 type linkLayer interface {
-	lsync.Runner
+	sync.Runner
 	Stream(out, err io.Writer)
 	Close()
-	sync(sync lsync.Link)
+	sync(sync sync.Link)
 	link(link linkInfo)
 	info() layerInfo
 }
@@ -185,9 +185,9 @@ type layerInfo struct {
 }
 
 // TODO: separate package, but only after moving Link to separate package
-func toSyncLayers(layers []linkLayer) []*lsync.Layer {
-	lock := lsync.NewLock(len(layers))
-	var out []*lsync.Layer
+func toSyncLayers(layers []linkLayer) []*sync.Layer {
+	lock := sync.NewLock(len(layers))
+	var out []*sync.Layer
 	for i := range layers {
 		from := layers[i].info()
 		for j := range layers[:i] {
@@ -205,7 +205,7 @@ func toSyncLayers(layers []linkLayer) []*lsync.Layer {
 				}
 			}
 		}
-		out = append(out, lsync.NewLayer(lock, layers[i]))
+		out = append(out, sync.NewLayer(lock, layers[i]))
 	}
 	return out
 }
@@ -222,11 +222,11 @@ func (l *buildLayer) link(link linkInfo) {
 	l.links = append(l.links, link)
 }
 
-func (l *buildLayer) sync(sync lsync.Link) {
+func (l *buildLayer) sync(sync sync.Link) {
 	l.syncs = append(l.syncs, sync)
 }
 
-func (l *buildLayer) Links() (links []lsync.Link, forTest bool) {
+func (l *buildLayer) Links() (links []sync.Link, forTest bool) {
 	return l.syncs, l.forTest()
 }
 
@@ -438,7 +438,7 @@ type cacheLayer struct {
 	streamer
 	linkShare
 	cache  *Cache
-	syncs  []lsync.Link
+	syncs  []sync.Link
 	shell  string
 	appDir string
 }
@@ -452,11 +452,11 @@ func (l *cacheLayer) info() layerInfo {
 
 func (l *cacheLayer) link(_ linkInfo) {}
 
-func (l *cacheLayer) sync(sync lsync.Link) {
+func (l *cacheLayer) sync(sync sync.Link) {
 	l.syncs = append(l.syncs, sync)
 }
 
-func (l *cacheLayer) Links() (links []lsync.Link, forTest bool) {
+func (l *cacheLayer) Links() (links []sync.Link, forTest bool) {
 	return l.syncs, false
 }
 

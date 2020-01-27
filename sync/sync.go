@@ -1,4 +1,4 @@
-package lsync
+package sync
 
 import (
 	"bufio"
