@@ -125,6 +125,7 @@ func (l *Layer) send(link Link, ev Event) {
 
 func (l *Layer) try(links []Link) {
 	defer close(l.done)
+	defer l.runWG.Done()
 
 	for _, link := range links {
 		if link.require {
@@ -152,14 +153,15 @@ func (l *Layer) try(links []Link) {
 				}
 				l.runner.Run()
 			}
-			l.runWG.Done()
 			return
 		}
 	}
 }
 
+// NOTE: EventChange/EventVersion delivery not guaranteed without reverse EventRequire link
 func (l *Layer) tryAfter(links []Link) {
 	defer close(l.done)
+	defer l.runWG.Done()
 
 	for _, link := range links {
 		if link.require {
@@ -187,7 +189,6 @@ func (l *Layer) tryAfter(links []Link) {
 			if l.change {
 				l.runner.Run()
 			}
-			l.runWG.Done()
 			return
 		}
 	}

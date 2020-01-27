@@ -54,10 +54,12 @@ func Detect(pf *Packfile, platformDir, planPath string) error {
 		}
 		defer os.RemoveAll(mdDir)
 		layers = append(layers, &detectLayer{
-			Streamer: lsync.NewStreamer(),
+			streamer: lsync.NewStreamer(),
+			linkShare: linkShare{
+				mdDir:    mdDir,
+			},
 			layer:    lp,
 			shell:    shell,
-			mdDir:    mdDir,
 			appDir:   appDir,
 		})
 	}
@@ -107,15 +109,15 @@ func readRequires(layers []linkLayer) ([]planRequire, error) {
 	var requires []planRequire
 	for _, layer := range layers {
 		info := layer.info()
-		if IsFail(info.result.err) {
+		if IsFail(info.share.err) {
 			continue
-		} else if info.result.err != nil {
-			return nil, xerrors.Errorf("error for layer '%s': %w", info.name, info.result.err)
+		} else if info.share.err != nil {
+			return nil, xerrors.Errorf("error for layer '%s': %w", info.name, info.share.err)
 		}
-		if info.result.mdDir == "" {
+		if info.share.mdDir == "" {
 			continue
 		}
-		req, err := readRequire(info.name, info.result.mdDir)
+		req, err := readRequire(info.name, info.share.mdDir)
 		if err != nil {
 			return nil, xerrors.Errorf("invalid metadata for layer '%s': %w", info.name, err)
 		}
@@ -147,18 +149,17 @@ func readRequire(name, path string) (planRequire, error) {
 }
 
 type detectLayer struct {
-	*lsync.Streamer
+	streamer
+	linkShare
 	layer  *Layer
-	result linkResult
 	shell  string
-	mdDir  string
 	appDir string
 }
 
 func (l *detectLayer) info() layerInfo {
 	return layerInfo{
-		name:   l.layer.Name,
-		result: &l.result,
+		name:  l.layer.Name,
+		share: &l.linkShare,
 	}
 }
 
@@ -176,11 +177,10 @@ func (l *detectLayer) Test() (exists, matched bool) {
 
 func (l *detectLayer) Run() {
 	if err := writeMetadata(l.mdDir, l.layer.Version, l.layer.Metadata); err != nil {
-		l.result.err = err
+		l.err = err
 		return
 	}
 	if l.layer.Require == nil {
-		l.result.mdDir = l.mdDir
 		return
 	}
 
@@ -188,24 +188,23 @@ func (l *detectLayer) Run() {
 	env = append(env, "APP="+l.appDir, "MD="+l.mdDir)
 	cmd, c, err := execCmd(&l.layer.Require.Exec, l.shell)
 	if err != nil {
-		l.result.err = err
+		l.err = err
 		return
 	}
 	defer c.Close()
 	cmd.Dir = l.appDir
 	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = l.Streamer.Writers()
+	cmd.Stdout, cmd.Stderr = l.Writers()
 	if err := cmd.Run(); err != nil {
 		if err, ok := err.(*exec.ExitError); ok {
 			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				l.result.err = CodeError(status.ExitStatus())
+				l.err = CodeError(status.ExitStatus())
 				return
 			}
 		}
-		l.result.err = err
+		l.err = err
 		return
 	}
-	l.result.mdDir = l.mdDir
 }
 
 type CodeError int
