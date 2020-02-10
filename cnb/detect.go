@@ -1,4 +1,4 @@
-package packfile
+package cnb
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
 
+	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/sync"
 )
 
@@ -29,12 +30,12 @@ type planSections struct {
 	Provides []planProvide `toml:"provides"`
 }
 
-func Detect(pf *Packfile, platformDir, planPath string) error {
+func Detect(pf *packfile.Packfile, platformDir, planPath string) error {
 	appDir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	shell := defaultShell
+	shell := packfile.DefaultShell
 	if s := pf.Config.Shell; s != "" {
 		shell = s
 	}
@@ -151,7 +152,7 @@ func readRequire(name, path string) (planRequire, error) {
 type detectLayer struct {
 	streamer
 	linkShare
-	layer  *Layer
+	layer  *packfile.Layer
 	shell  string
 	appDir string
 }

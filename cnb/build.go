@@ -1,4 +1,4 @@
-package packfile
+package cnb
 
 import (
 	"io"
@@ -13,6 +13,7 @@ import (
 	"github.com/buildpacks/lifecycle"
 	"golang.org/x/xerrors"
 
+	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/sync"
 )
 
@@ -51,15 +52,15 @@ func readLayerTOML(path string) (layerTOML, error) {
 }
 
 type launchTOML struct {
-	Processes []Process `toml:"processes"`
+	Processes []packfile.Process `toml:"processes"`
 }
 
-func Build(pf *Packfile, layersDir, platformDir, planPath string) error {
+func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error {
 	appDir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	shell := defaultShell
+	shell := packfile.DefaultShell
 	if s := pf.Config.Shell; s != "" {
 		shell = s
 	}
@@ -146,7 +147,7 @@ type streamer interface {
 type buildLayer struct {
 	streamer
 	linkShare
-	layer    *Layer
+	layer    *packfile.Layer
 	requires []planRequire
 	links    []linkInfo
 	syncs    []sync.Link
@@ -170,7 +171,7 @@ type linkShare struct {
 }
 
 type linkInfo struct {
-	Link
+	packfile.Link
 	*linkShare
 }
 
@@ -181,7 +182,7 @@ func (l linkInfo) layerTOML() string {
 type layerInfo struct {
 	name  string
 	share *linkShare
-	links []Link
+	links []packfile.Link
 }
 
 // TODO: separate package, but only after moving Link to separate package
@@ -237,7 +238,7 @@ func (l *buildLayer) forTest() bool {
 	return false
 }
 
-func (l *buildLayer) provide() *Provide {
+func (l *buildLayer) provide() *packfile.Provide {
 	provide := l.layer.Build
 	if l.layer.Provide != nil {
 		provide = l.layer.Provide
@@ -434,7 +435,7 @@ func (l *buildLayer) Run() {
 type cacheLayer struct {
 	streamer
 	linkShare
-	cache  *Cache
+	cache  *packfile.Cache
 	syncs  []sync.Link
 	shell  string
 	appDir string

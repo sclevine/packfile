@@ -1,4 +1,4 @@
-package packfile
+package cnb
 
 import (
 	"io"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
+
+	"github.com/sclevine/packfile"
 )
 
 func IsFail(err error) bool {
@@ -50,7 +52,7 @@ func writeMetadata(path, version string, metadata map[string]string) error {
 }
 
 // NOTE: implements UNIX exec-style shebang parsing for shell
-func execCmd(e *Exec, shell string) (*exec.Cmd, io.Closer, error) {
+func execCmd(e *packfile.Exec, shell string) (*exec.Cmd, io.Closer, error) {
 	if e.Inline != "" && e.Path != "" {
 		return nil, nil, xerrors.New("both inline and path specified")
 	}

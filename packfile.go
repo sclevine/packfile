@@ -1,6 +1,6 @@
 package packfile
 
-const defaultShell = "/usr/bin/env bash"
+const DefaultShell = "/usr/bin/env bash"
 
 type Packfile struct {
 	Config    Config    `toml:"config"`
