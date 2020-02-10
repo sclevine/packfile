@@ -349,10 +349,7 @@ func (l *buildLayer) Test() (exists, matched bool) {
 
 	if !skipVersion && newVersion == oldVersion {
 		if _, err := os.Stat(l.layerDir); xerrors.Is(err, os.ErrNotExist) {
-			if l.layer.Expose || l.layer.Store {
-				return false, false
-			}
-			return false, true
+			return false, !l.layer.Expose && !l.layer.Store
 		}
 		return true, true
 	}
