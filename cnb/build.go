@@ -1,54 +1,30 @@
 package cnb
 
 import (
-	"io"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"syscall"
 
 	"github.com/BurntSushi/toml"
-	"github.com/buildpacks/lifecycle"
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
+	"github.com/sclevine/packfile/layers"
 	"github.com/sclevine/packfile/sync"
 )
 
 type buildPlan struct {
-	Entries []planRequire `toml:"entries"`
+	Entries []layers.Require `toml:"entries"`
 }
 
-func (b buildPlan) get(name string) []planRequire {
-	var out []planRequire
+func (b buildPlan) get(name string) []layers.Require {
+	var out []layers.Require
 	for _, e := range b.Entries {
 		if e.Name == name {
 			out = append(out, e)
 		}
 	}
 	return out
-}
-
-type layerTOML struct {
-	Launch   bool `toml:"launch"`
-	Build    bool `toml:"build"`
-	Cache    bool `toml:"cache"`
-	Metadata struct {
-		Version string `toml:"version"`
-	} `toml:"metadata"`
-}
-
-func readLayerTOML(path string) (layerTOML, error) {
-	var out layerTOML
-	if _, err := toml.DecodeFile(path, &out); err != nil {
-		if !xerrors.Is(err, os.ErrNotExist) {
-			return layerTOML{}, err
-		}
-		out = layerTOML{}
-	}
-	return out, nil
 }
 
 type launchTOML struct {
@@ -68,16 +44,16 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 	if _, err := toml.DecodeFile(planPath, &plan); err != nil {
 		return err
 	}
-	var layers []linkLayer
+	var linkLayers []layers.LinkLayer
 	for i := range pf.Caches {
-		layers = append(layers, &cacheLayer{
-			streamer: sync.NewStreamer(),
-			linkShare: linkShare{
-				layerDir: filepath.Join(layersDir, pf.Caches[i].Name),
+		linkLayers = append(linkLayers, &layers.Cache{
+			Streamer: sync.NewStreamer(),
+			LinkShare: layers.LinkShare{
+				LayerDir: filepath.Join(layersDir, pf.Caches[i].Name),
 			},
-			cache:  &pf.Caches[i],
-			shell:  shell,
-			appDir: appDir,
+			Cache:  &pf.Caches[i],
+			Shell:  shell,
+			AppDir: appDir,
 		})
 	}
 	for i := range pf.Layers {
@@ -96,27 +72,27 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 		}
 		defer os.RemoveAll(mdDir)
 		layerDir := filepath.Join(layersDir, lp.Name)
-		layers = append(layers, &buildLayer{
-			streamer: sync.NewStreamer(),
-			linkShare: linkShare{
-				mdDir:    mdDir,
-				layerDir: layerDir,
+		linkLayers = append(linkLayers, &layers.Build{
+			Streamer: sync.NewStreamer(),
+			LinkShare: layers.LinkShare{
+				MetadataDir: mdDir,
+				LayerDir:    layerDir,
 			},
-			layer:    lp,
-			requires: plan.get(lp.Name),
-			shell:    shell,
-			appDir:   appDir,
+			Layer:    lp,
+			Requires: plan.get(lp.Name),
+			Shell:    shell,
+			AppDir:   appDir,
 		})
 	}
-	syncLayers := toSyncLayers(layers)
+	syncLayers := layers.ToSyncLayers(linkLayers)
 	for i := range syncLayers {
 		go func(i int) {
-			defer layers[i].Close()
+			defer linkLayers[i].Close()
 			syncLayers[i].Run()
 		}(i)
 	}
-	for i := range layers {
-		layers[i].Stream(os.Stdout, os.Stderr)
+	for i := range linkLayers {
+		linkLayers[i].Stream(os.Stdout, os.Stderr)
 	}
 	for i := range syncLayers {
 		syncLayers[i].Wait()
@@ -126,7 +102,7 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 	}, filepath.Join(layersDir, "launch.toml")); err != nil {
 		return err
 	}
-	requires, err := readRequires(layers)
+	requires, err := layers.ReadRequires(linkLayers)
 	if err != nil {
 		return err
 	}
@@ -138,437 +114,3 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 	return toml.NewEncoder(f).Encode(buildPlan{requires})
 }
 
-type streamer interface {
-	Writers() (out, err io.Writer)
-	Stream(out, err io.Writer)
-	Close()
-}
-
-type buildLayer struct {
-	streamer
-	linkShare
-	layer    *packfile.Layer
-	requires []planRequire
-	links    []linkInfo
-	syncs    []sync.Link
-	shell    string
-	appDir   string
-}
-
-type linkLayer interface {
-	sync.Runner
-	Stream(out, err io.Writer)
-	Close()
-	sync(sync sync.Link)
-	link(link linkInfo)
-	info() layerInfo
-}
-
-type linkShare struct {
-	layerDir string
-	mdDir    string
-	err      error
-}
-
-type linkInfo struct {
-	packfile.Link
-	*linkShare
-}
-
-func (l linkInfo) layerTOML() string {
-	return l.layerDir + ".toml"
-}
-
-type layerInfo struct {
-	name  string
-	share *linkShare
-	links []packfile.Link
-}
-
-// TODO: separate package, but only after moving Link to separate package
-func toSyncLayers(layers []linkLayer) []*sync.Layer {
-	lock := sync.NewLock(len(layers))
-	var out []*sync.Layer
-	for i := range layers {
-		from := layers[i].info()
-		for j := range layers[:i] {
-			to := layers[j].info()
-			for _, link := range from.links {
-				if link.Name == to.name {
-					layers[i].link(linkInfo{link, to.share})
-					layers[i].sync(out[j].Link(true, false, false))
-				}
-			}
-			for _, link := range to.links {
-				if link.Name == from.name &&
-					(link.LinkContents || link.LinkVersion) {
-					layers[i].sync(out[j].Link(false, link.LinkContents, link.LinkVersion))
-				}
-			}
-		}
-		out = append(out, sync.NewLayer(lock, layers[i]))
-	}
-	return out
-}
-
-func (l *buildLayer) info() layerInfo {
-	return layerInfo{
-		name:  l.layer.Name,
-		share: &l.linkShare,
-		links: l.provide().Links,
-	}
-}
-
-func (l *buildLayer) link(link linkInfo) {
-	l.links = append(l.links, link)
-}
-
-func (l *buildLayer) sync(sync sync.Link) {
-	l.syncs = append(l.syncs, sync)
-}
-
-func (l *buildLayer) Links() (links []sync.Link, forTest bool) {
-	return l.syncs, l.forTest()
-}
-
-func (l *buildLayer) forTest() bool {
-	if l.provide() != nil && l.provide().Test != nil {
-		return l.provide().Test.UseLinks
-	}
-	return false
-}
-
-func (l *buildLayer) provide() *packfile.Provide {
-	provide := l.layer.Build
-	if l.layer.Provide != nil {
-		provide = l.layer.Provide
-	}
-	return provide
-}
-
-func (l *buildLayer) layerTOML() string {
-	return l.layerDir + ".toml"
-}
-
-func (l *buildLayer) Test() (exists, matched bool) {
-	if l.provide() != nil {
-		if l.layer.Require == nil {
-			if err := writeMetadata(l.mdDir, l.layer.Version, l.layer.Metadata); err != nil {
-				l.err = err
-				return false, false
-			}
-		}
-		for _, req := range l.requires {
-			if err := writeMetadata(l.mdDir, req.Version, req.Metadata); err != nil {
-				l.err = err
-				return false, false
-			}
-		}
-	}
-
-	env := os.Environ()
-	env = append(env, "APP="+l.appDir, "MD="+l.mdDir)
-
-	for _, link := range l.links {
-		if link.err != nil {
-			l.err = xerrors.Errorf("link '%s' failed: %w", link.Name, link.err)
-			return false, false
-		}
-		if l.forTest() && link.PathEnv != "" {
-			env = append(env, link.PathEnv+"="+link.layerDir)
-		}
-		if link.VersionEnv != "" {
-			lt, err := readLayerTOML(link.layerTOML())
-			if err != nil {
-				l.err = err
-				return false, false
-			}
-			env = append(env, link.VersionEnv+"="+lt.Metadata.Version)
-		}
-		if link.MetadataEnv != "" {
-			env = append(env, link.MetadataEnv+"="+link.mdDir)
-		}
-	}
-	if l.forTest() {
-		var err error
-		env, err = setupEnv(env, l.links)
-		if err != nil {
-			l.err = err
-			return
-		}
-	}
-	if l.provide() == nil || l.provide().Test == nil {
-		return false, false
-	}
-
-	cmd, c, err := execCmd(&l.provide().Test.Exec, l.shell)
-	if err != nil {
-		l.err = err
-		return false, false
-	}
-	defer c.Close()
-	cmd.Dir = l.appDir
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = l.Writers()
-	if err := cmd.Run(); err != nil {
-		if err, ok := err.(*exec.ExitError); ok {
-			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				l.err = CodeError(status.ExitStatus())
-				return false, false
-			}
-		}
-		l.err = err
-		return false, false
-	}
-
-	layerTOMLPath := l.layerDir + ".toml"
-	layerTOML, err := readLayerTOML(layerTOMLPath)
-	if err != nil {
-		l.err = err
-		return false, false
-	}
-	layerTOML.Cache = l.layer.Store
-	layerTOML.Build = l.layer.Expose
-	layerTOML.Launch = l.layer.Export
-
-	skipVersion := false
-	oldVersion := layerTOML.Metadata.Version
-	newVersion, err := l.mdValue("version")
-	if err == nil {
-		layerTOML.Metadata.Version = newVersion
-	} else if os.IsNotExist(err) {
-		layerTOML.Metadata.Version = ""
-		skipVersion = true
-	} else {
-		l.err = err
-		return false, false
-	}
-	if err := writeTOML(layerTOML, layerTOMLPath); err != nil {
-		l.err = err
-		return false, false
-	}
-
-	if !skipVersion && newVersion == oldVersion {
-		if _, err := os.Stat(l.layerDir); xerrors.Is(err, os.ErrNotExist) {
-			return false, !l.layer.Expose && !l.layer.Store
-		}
-		return true, true
-	}
-	return false, false
-}
-
-func (l *buildLayer) mdValue(key string) (string, error) {
-	// FIXME: need to account for empty version file matching missing layer TOML
-	value, err := ioutil.ReadFile(filepath.Join(l.mdDir, key))
-	if err != nil {
-		return "", err
-	}
-	return string(value), err
-}
-
-func (l *buildLayer) Run() {
-	if l.err != nil {
-		return
-	}
-	if err := os.RemoveAll(l.layerDir); err != nil {
-		l.err = err
-		return
-	}
-	env := os.Environ()
-	env = append(env, "APP="+l.appDir, "MD="+l.mdDir, "LAYER="+l.layerDir)
-
-	for _, link := range l.links {
-		if link.err != nil {
-			l.err = xerrors.Errorf("link '%s' failed: %w", link.Name, link.err)
-			return
-		}
-		if link.PathEnv != "" {
-			env = append(env, link.PathEnv+"="+link.layerDir)
-		}
-		if link.VersionEnv != "" {
-			lt, err := readLayerTOML(link.layerTOML())
-			if err != nil {
-				l.err = err
-				return
-			}
-			env = append(env, link.VersionEnv+"="+lt.Metadata.Version)
-		}
-		if link.MetadataEnv != "" {
-			env = append(env, link.MetadataEnv+"="+link.mdDir)
-		}
-	}
-	var err error
-	env, err = setupEnv(env, l.links)
-	if err != nil {
-		l.err = err
-		return
-	}
-
-	if err := os.MkdirAll(l.layerDir, 0777); err != nil {
-		l.err = err
-		return
-	}
-	if l.provide() == nil {
-		return
-	}
-	cmd, c, err := execCmd(&l.provide().Exec, l.shell)
-	if err != nil {
-		l.err = err
-		return
-	}
-	defer c.Close()
-	cmd.Dir = l.appDir
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = l.Writers()
-	if err := cmd.Run(); err != nil {
-		if err, ok := err.(*exec.ExitError); ok {
-			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				l.err = CodeError(status.ExitStatus())
-				return
-			}
-		}
-		l.err = err
-		return
-	}
-}
-
-type cacheLayer struct {
-	streamer
-	linkShare
-	cache  *packfile.Cache
-	syncs  []sync.Link
-	shell  string
-	appDir string
-}
-
-func (l *cacheLayer) info() layerInfo {
-	return layerInfo{
-		name:  l.cache.Name,
-		share: &l.linkShare,
-	}
-}
-
-func (l *cacheLayer) link(_ linkInfo) {}
-
-func (l *cacheLayer) sync(sync sync.Link) {
-	l.syncs = append(l.syncs, sync)
-}
-
-func (l *cacheLayer) Links() (links []sync.Link, forTest bool) {
-	return l.syncs, false
-}
-
-func (l *cacheLayer) Test() (exists, matched bool) {
-	if err := writeTOML(layerTOML{Cache: true}, l.layerDir+".toml"); err != nil {
-		l.err = err
-		return false, false
-	}
-	if _, err := os.Stat(l.layerDir); xerrors.Is(err, os.ErrNotExist) {
-		return false, false
-	} else if err != nil {
-		l.err = err
-		return false, false
-	}
-	return true, true
-}
-
-func (l *cacheLayer) Run() {
-	if l.err != nil {
-		return
-	}
-	env := os.Environ()
-	env = append(env, "APP="+l.appDir, "CACHE="+l.layerDir)
-
-	if err := os.MkdirAll(l.layerDir, 0777); err != nil {
-		l.err = err
-		return
-	}
-	if l.cache.Setup == nil {
-		return
-	}
-	cmd, c, err := execCmd(l.cache.Setup, l.shell)
-	if err != nil {
-		l.err = err
-		return
-	}
-	defer c.Close()
-	cmd.Dir = l.appDir
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = l.Writers()
-	if err := cmd.Run(); err != nil {
-		if err, ok := err.(*exec.ExitError); ok {
-			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				l.err = CodeError(status.ExitStatus())
-				return
-			}
-		}
-		l.err = err
-		return
-	}
-}
-
-func setupEnv(env []string, links []linkInfo) ([]string, error) {
-	lcEnv := &lifecycle.Env{
-		LookupEnv: func(key string) (string, bool) {
-			for i := range env {
-				kv := strings.SplitN(env[i], "=", 2)
-				if len(kv) == 2 && kv[0] == key {
-					return kv[1], true
-				}
-			}
-			return "", false
-		},
-		Getenv: func(key string) string {
-			for i := range env {
-				kv := strings.SplitN(env[i], "=", 2)
-				if len(kv) == 2 && kv[0] == key {
-					return kv[1]
-				}
-			}
-			return ""
-		},
-		Setenv: func(key, value string) error {
-			i := 0
-			for _, e := range env {
-				kv := strings.SplitN(e, "=", 2)
-				if len(kv) == 2 && kv[0] != key {
-					env[i] = e
-					i++
-				}
-			}
-			env = append(env[:i], key+"="+value)
-			return nil
-		},
-		Unsetenv: func(key string) error {
-			i := 0
-			for _, e := range env {
-				kv := strings.SplitN(e, "=", 2)
-				if len(kv) == 2 && kv[0] != key {
-					env[i] = e
-					i++
-				}
-			}
-			env = env[:i]
-			return nil
-		},
-		Environ: func() []string {
-			return env
-		},
-		Map: lifecycle.POSIXBuildEnv,
-	}
-
-	for _, link := range links {
-		if err := lcEnv.AddRootDir(link.layerDir); err != nil {
-			return nil, err
-		}
-	}
-	for _, link := range links {
-		if err := lcEnv.AddEnvDir(filepath.Join(link.layerDir, "env")); err != nil {
-			return nil, err
-		}
-		if err := lcEnv.AddEnvDir(filepath.Join(link.layerDir, "env.build")); err != nil {
-			return nil, err
-		}
-	}
-	return env, nil
-}
