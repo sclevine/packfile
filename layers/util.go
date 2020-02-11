@@ -16,6 +16,40 @@ import (
 	"github.com/sclevine/packfile/sync"
 )
 
+type Streamer interface {
+	Writers() (out, err io.Writer)
+	Stream(out, err io.Writer)
+	Close()
+}
+
+type LinkLayer interface {
+	sync.Runner
+	Stream(out, err io.Writer)
+	Close()
+	info() layerInfo
+	link(target LinkLayer, sync *sync.Layer)
+}
+
+type LinkShare struct {
+	LayerDir    string
+	MetadataDir string
+	Err         error
+}
+
+type linkInfo struct {
+	packfile.Link
+	*LinkShare
+}
+
+func (l linkInfo) layerTOML() string {
+	return l.LayerDir + ".toml"
+}
+
+type layerInfo struct {
+	name  string
+	share *LinkShare
+	links []packfile.Link
+}
 
 type CodeError int
 
@@ -95,26 +129,12 @@ type nopCloser struct{}
 
 func (nopCloser) Close() error { return nil }
 
-// TODO: separate package
-func ToSyncLayers(layers []LinkLayer) []*sync.Layer {
+func LinkLayers(layers []LinkLayer) []*sync.Layer {
 	lock := sync.NewLock(len(layers))
 	var out []*sync.Layer
 	for i := range layers {
-		from := layers[i].info()
 		for j := range layers[:i] {
-			to := layers[j].info()
-			for _, link := range from.links {
-				if link.Name == to.name {
-					layers[i].addLink(linkInfo{link, to.share})
-					layers[i].addSync(out[j].Link(true, false, false))
-				}
-			}
-			for _, link := range to.links {
-				if link.Name == from.name &&
-					(link.LinkContents || link.LinkVersion) {
-					layers[i].addSync(out[j].Link(false, link.LinkContents, link.LinkVersion))
-				}
-			}
+			layers[i].link(layers[j], out[j])
 		}
 		out = append(out, sync.NewLayer(lock, layers[i]))
 	}
@@ -127,7 +147,6 @@ type Require struct {
 	Metadata map[string]string `toml:"metadata"` // TODO: fails to accept all metadata at build
 }
 
-// TODO: consider moving to another package with ToSyncLayers
 func ReadRequires(layers []LinkLayer) ([]Require, error) {
 	var requires []Require
 	for _, layer := range layers {

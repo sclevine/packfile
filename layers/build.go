@@ -1,7 +1,6 @@
 package layers
 
 import (
-	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -17,12 +16,6 @@ import (
 	"github.com/sclevine/packfile/sync"
 )
 
-type Streamer interface {
-	Writers() (out, err io.Writer)
-	Stream(out, err io.Writer)
-	Close()
-}
-
 type Build struct {
 	Streamer
 	LinkShare
@@ -34,36 +27,6 @@ type Build struct {
 	syncs    []sync.Link
 }
 
-type LinkLayer interface {
-	sync.Runner
-	Stream(out, err io.Writer)
-	Close()
-	addSync(sync sync.Link)
-	addLink(link linkInfo)
-	info() layerInfo
-}
-
-type LinkShare struct {
-	LayerDir    string
-	MetadataDir string
-	Err         error
-}
-
-type linkInfo struct {
-	packfile.Link
-	*LinkShare
-}
-
-func (l linkInfo) layerTOML() string {
-	return l.LayerDir + ".toml"
-}
-
-type layerInfo struct {
-	name  string
-	share *LinkShare
-	links []packfile.Link
-}
-
 func (l *Build) info() layerInfo {
 	return layerInfo{
 		name:  l.Layer.Name,
@@ -72,12 +35,22 @@ func (l *Build) info() layerInfo {
 	}
 }
 
-func (l *Build) addLink(link linkInfo) {
-	l.links = append(l.links, link)
-}
+func (l *Build) link(target LinkLayer, sync *sync.Layer) {
+	from := l.info()
+	to := target.info()
 
-func (l *Build) addSync(sync sync.Link) {
-	l.syncs = append(l.syncs, sync)
+	for _, link := range from.links {
+		if link.Name == to.name {
+			l.links = append(l.links, linkInfo{link, to.share})
+			l.syncs = append(l.syncs, sync.Link(true, false, false))
+		}
+	}
+	for _, link := range to.links {
+		if link.Name == from.name &&
+			(link.LinkContents || link.LinkVersion) {
+			l.syncs = append(l.syncs, sync.Link(false, link.LinkContents, link.LinkVersion))
+		}
+	}
 }
 
 func (l *Build) Links() (links []sync.Link, forTest bool) {

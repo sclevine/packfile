@@ -17,7 +17,6 @@ type Cache struct {
 	Cache  *packfile.Cache
 	Shell  string
 	AppDir string
-	syncs  []sync.Link
 }
 
 func (l *Cache) info() layerInfo {
@@ -27,14 +26,10 @@ func (l *Cache) info() layerInfo {
 	}
 }
 
-func (l *Cache) addLink(_ linkInfo) {}
-
-func (l *Cache) addSync(sync sync.Link) {
-	l.syncs = append(l.syncs, sync)
-}
+func (l *Cache) link(_ LinkLayer, _ *sync.Layer) {}
 
 func (l *Cache) Links() (links []sync.Link, forTest bool) {
-	return l.syncs, false
+	return nil, false
 }
 
 func (l *Cache) Test() (exists, matched bool) {

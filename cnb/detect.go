@@ -54,7 +54,7 @@ func Detect(pf *packfile.Packfile, platformDir, planPath string) error {
 			AppDir: appDir,
 		})
 	}
-	syncLayers := layers.ToSyncLayers(linkLayers)
+	syncLayers := layers.LinkLayers(linkLayers)
 	for i := range syncLayers {
 		go func(i int) {
 			defer linkLayers[i].Close()

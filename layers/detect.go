@@ -24,9 +24,7 @@ func (l *Detect) info() layerInfo {
 	}
 }
 
-func (l *Detect) addLink(_ linkInfo) {}
-
-func (l *Detect) addSync(_ sync.Link) {}
+func (l *Detect) link(_ LinkLayer, _ *sync.Layer) {}
 
 func (l *Detect) Links() (links []sync.Link, forTest bool) {
 	return nil, false
