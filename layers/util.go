@@ -140,9 +140,9 @@ func LinkLayers(layers []LinkLayer) []*sync.Layer {
 	for i := range layers {
 		layers[i].backward(layers[:i], out[:i])
 	}
-	//for i := range layers {
-	//	layers[i].forward(layers[i+1:], out[i+1:])
-	//}
+	for i := range layers {
+		layers[i].forward(layers[i+1:], out[i+1:])
+	}
 	return out
 }
 

@@ -2,6 +2,7 @@ package sync
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"sync"
 )
@@ -140,11 +141,13 @@ func (l *Layer) Run() {
 
 func (l *Layer) send(link Link, ev Event) {
 	l.lock.claim()
-	select {
-	case link.c <- ev:
-	case <-link.done:
-		l.lock.release()
-	}
+	go func() {
+		select {
+		case link.c <- ev:
+		case <-link.done:
+			l.lock.release()
+		}
+	}()
 }
 
 func (l *Layer) try(links []Link) {
