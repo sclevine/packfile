@@ -27,7 +27,9 @@ type LinkLayer interface {
 	Stream(out, err io.Writer)
 	Close()
 	info() layerInfo
-	link(target LinkLayer, sync *sync.Layer)
+	locks(target LinkLayer) bool
+	forward(targets []LinkLayer, syncs []*sync.Layer)
+	backward(targets []LinkLayer, syncs []*sync.Layer)
 }
 
 type LinkShare struct {
@@ -136,10 +138,11 @@ func LinkLayers(layers []LinkLayer) []*sync.Layer {
 		out[i] = sync.NewLayer(lock, layers[i])
 	}
 	for i := range layers {
-		for j := range layers {
-			layers[i].link(layers[j], out[j])
-		}
+		layers[i].backward(layers[:i], out[:i])
 	}
+	//for i := range layers {
+	//	layers[i].forward(layers[i+1:], out[i+1:])
+	//}
 	return out
 }
 

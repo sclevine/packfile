@@ -35,27 +35,41 @@ func (l *Build) info() layerInfo {
 	}
 }
 
-func (l *Build) link(target LinkLayer, s *sync.Layer) {
-	from := l.info()
-	to := target.info()
+func (l *Build) locks(_ LinkLayer) bool {
+	return false
+}
 
-	for _, link := range from.links {
-		if link.Name == to.name {
-			l.links = append(l.links, linkInfo{link, to.share})
-			l.syncs = append(l.syncs, s.Link(sync.Require))
+func (l *Build) backward(targets []LinkLayer, syncs []*sync.Layer) {
+	for i := range targets {
+		from := l.info()
+		to := targets[i].info()
+
+		for _, link := range from.links {
+			if link.Name == to.name {
+				l.links = append(l.links, linkInfo{link, to.share})
+				l.syncs = append(l.syncs, syncs[i].Link(sync.Require))
+			}
 		}
 	}
-	for _, link := range to.links {
-		if link.Name == from.name {
-			var opts []sync.LinkOption
-			if link.LinkContent {
-				opts = append(opts, sync.Content)
-			}
-			if link.LinkVersion {
-				opts = append(opts, sync.Version)
-			}
-			if len(opts) > 0 {
-				l.syncs = append(l.syncs, s.Link(opts...))
+}
+
+func (l *Build) forward(targets []LinkLayer, syncs []*sync.Layer) {
+	for i := range targets {
+		from := l.info()
+		to := targets[i].info()
+
+		for _, link := range to.links {
+			if link.Name == from.name {
+				var opts []sync.LinkOption
+				if link.LinkContent {
+					opts = append(opts, sync.Content)
+				}
+				if link.LinkVersion {
+					opts = append(opts, sync.Version)
+				}
+				if len(opts) > 0 {
+					l.syncs = append(l.syncs, syncs[i].Link(opts...))
+				}
 			}
 		}
 	}

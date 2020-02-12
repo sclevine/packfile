@@ -26,7 +26,18 @@ func (l *Cache) info() layerInfo {
 	}
 }
 
-func (l *Cache) link(_ LinkLayer, _ *sync.Layer) {}
+func (l *Cache) locks(target LinkLayer) bool {
+	for _, link := range target.info().links {
+		if link.Name == l.Cache.Name {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *Cache) backward(_ []LinkLayer, _ []*sync.Layer) {}
+
+func (l *Cache) forward(_ []LinkLayer, _ []*sync.Layer) {}
 
 func (l *Cache) Links() (links []sync.Link, forTest bool) {
 	return nil, false

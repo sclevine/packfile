@@ -24,7 +24,13 @@ func (l *Detect) info() layerInfo {
 	}
 }
 
-func (l *Detect) link(_ LinkLayer, _ *sync.Layer) {}
+func (l *Detect) locks(_ LinkLayer) bool {
+	return false
+}
+
+func (l *Detect) backward(_ []LinkLayer, _ []*sync.Layer) {}
+
+func (l *Detect) forward(_ []LinkLayer, _ []*sync.Layer) {}
 
 func (l *Detect) Links() (links []sync.Link, forTest bool) {
 	return nil, false
@@ -65,4 +71,3 @@ func (l *Detect) Run() {
 		return
 	}
 }
-
