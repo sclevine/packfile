@@ -50,6 +50,7 @@ type Link struct {
 	require bool
 	content bool
 	version bool
+	cache   bool
 	testWG  *sync.WaitGroup
 	runWG   *sync.WaitGroup
 	c       chan<- Event
@@ -89,16 +90,39 @@ func NewLayer(lock *Lock, runner Runner) *Layer {
 	}
 }
 
-func (l *Layer) Link(require, content, version bool) Link {
-	return Link{
-		require: require,
-		content: content,
-		version: version,
+type LinkOption int
+
+const (
+	Require LinkOption = iota
+	Content
+	Version
+	Cache
+)
+
+func (l LinkOption) apply(link *Link) {
+	switch l {
+	case Require:
+		link.require = true
+	case Content:
+		link.content = true
+	case Version:
+		link.version = true
+	case Cache:
+		link.cache = true
+	}
+}
+
+func (l *Layer) Link(opts ...LinkOption) Link {
+	link := Link{
 		testWG:  l.testWG,
 		runWG:   l.runWG,
 		c:       l.c,
 		done:    l.done,
 	}
+	for _, opt := range opts {
+		opt.apply(&link)
+	}
+	return link
 }
 
 func (l *Layer) Wait() {
@@ -147,7 +171,7 @@ func (l *Layer) try(links []Link) {
 		case <-l.lock.wait():
 			if l.change {
 				for _, link := range links {
-					if link.require {
+					if link.require || link.cache {
 						link.runWG.Wait()
 					}
 				}
@@ -170,7 +194,7 @@ func (l *Layer) tryAfter(links []Link) {
 	}
 	l.lock.release()
 	for _, link := range links {
-		if link.require {
+		if link.require || link.cache {
 			link.runWG.Wait()
 		}
 	}

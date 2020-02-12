@@ -131,12 +131,14 @@ func (nopCloser) Close() error { return nil }
 
 func LinkLayers(layers []LinkLayer) []*sync.Layer {
 	lock := sync.NewLock(len(layers))
-	var out []*sync.Layer
+	out := make([]*sync.Layer, len(layers))
 	for i := range layers {
-		for j := range layers[:i] {
+		out[i] = sync.NewLayer(lock, layers[i])
+	}
+	for i := range layers {
+		for j := range layers {
 			layers[i].link(layers[j], out[j])
 		}
-		out = append(out, sync.NewLayer(lock, layers[i]))
 	}
 	return out
 }

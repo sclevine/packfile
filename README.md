@@ -81,3 +81,4 @@ IDEA: use UUID stored in layer metadata to rep unique build ID
 
 - Use IDs for content-linked layers (think about guarantees)
 - prevent concurrent cache writes (and enforce order?)
+  - this can be accomplished by establishing dependency between layers that depend on the same cache

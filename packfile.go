@@ -68,12 +68,12 @@ type Test struct {
 }
 
 type Link struct {
-	Name         string `toml:"name"`
-	PathEnv      string `toml:"path-as"`
-	VersionEnv   string `toml:"version-as"`
-	MetadataEnv  string `toml:"metadata-as"`
-	LinkContents bool   `toml:"link-contents"`
-	LinkVersion  bool   `toml:"link-version"`
+	Name        string `toml:"name"`
+	PathEnv     string `toml:"path-as"`
+	VersionEnv  string `toml:"version-as"`
+	MetadataEnv string `toml:"metadata-as"`
+	LinkContent bool   `toml:"link-content"`
+	LinkVersion bool   `toml:"link-version"`
 }
 
 type Dep struct {

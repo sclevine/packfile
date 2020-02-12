@@ -35,20 +35,28 @@ func (l *Build) info() layerInfo {
 	}
 }
 
-func (l *Build) link(target LinkLayer, sync *sync.Layer) {
+func (l *Build) link(target LinkLayer, s *sync.Layer) {
 	from := l.info()
 	to := target.info()
 
 	for _, link := range from.links {
 		if link.Name == to.name {
 			l.links = append(l.links, linkInfo{link, to.share})
-			l.syncs = append(l.syncs, sync.Link(true, false, false))
+			l.syncs = append(l.syncs, s.Link(sync.Require))
 		}
 	}
 	for _, link := range to.links {
-		if link.Name == from.name &&
-			(link.LinkContents || link.LinkVersion) {
-			l.syncs = append(l.syncs, sync.Link(false, link.LinkContents, link.LinkVersion))
+		if link.Name == from.name {
+			var opts []sync.LinkOption
+			if link.LinkContent {
+				opts = append(opts, sync.Content)
+			}
+			if link.LinkVersion {
+				opts = append(opts, sync.Version)
+			}
+			if len(opts) > 0 {
+				l.syncs = append(l.syncs, s.Link(opts...))
+			}
 		}
 	}
 }
