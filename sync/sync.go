@@ -2,7 +2,6 @@ package sync
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"sync"
 )

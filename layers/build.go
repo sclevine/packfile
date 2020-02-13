@@ -50,6 +50,14 @@ func (l *Build) backward(targets []LinkLayer, syncs []*sync.Layer) {
 				l.syncs = append(l.syncs, syncs[i].Link(sync.Require))
 			}
 		}
+
+		if targets[i].locks(l) {
+			for j := range targets[i+1:] {
+				if k := i+1+j; targets[i].locks(targets[k]) {
+					l.syncs = append(l.syncs, syncs[k].Link(sync.Cache))
+				}
+			}
+		}
 	}
 }
 
