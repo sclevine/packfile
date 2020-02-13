@@ -35,11 +35,11 @@ func (l *Build) info() layerInfo {
 	}
 }
 
-func (l *Build) locks(_ LinkLayer) bool {
+func (l *Build) locks(_ linker) bool {
 	return false
 }
 
-func (l *Build) backward(targets []LinkLayer, syncs []*sync.Layer) {
+func (l *Build) backward(targets []linker, syncs []*sync.Layer) {
 	for i := range targets {
 		from := l.info()
 		to := targets[i].info()
@@ -61,7 +61,7 @@ func (l *Build) backward(targets []LinkLayer, syncs []*sync.Layer) {
 	}
 }
 
-func (l *Build) forward(targets []LinkLayer, syncs []*sync.Layer) {
+func (l *Build) forward(targets []linker, syncs []*sync.Layer) {
 	for i := range targets {
 		from := l.info()
 		to := targets[i].info()

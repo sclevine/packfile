@@ -23,13 +23,17 @@ type Streamer interface {
 }
 
 type LinkLayer interface {
+	linker
 	sync.Runner
 	Stream(out, err io.Writer)
 	Close()
+}
+
+type linker interface {
 	info() layerInfo
-	locks(target LinkLayer) bool
-	forward(targets []LinkLayer, syncs []*sync.Layer)
-	backward(targets []LinkLayer, syncs []*sync.Layer)
+	locks(target linker) bool
+	forward(targets []linker, syncs []*sync.Layer)
+	backward(targets []linker, syncs []*sync.Layer)
 }
 
 type LinkShare struct {
@@ -133,15 +137,23 @@ func (nopCloser) Close() error { return nil }
 
 func LinkLayers(layers []LinkLayer) []*sync.Layer {
 	lock := sync.NewLock(len(layers))
-	out := make([]*sync.Layer, len(layers))
+	syncs := make([]*sync.Layer, len(layers))
 	for i := range layers {
-		out[i] = sync.NewLayer(lock, layers[i])
+		syncs[i] = sync.NewLayer(lock, layers[i])
 	}
 	for i := range layers {
-		layers[i].backward(layers[:i], out[:i])
+		layers[i].backward(toLinkers(layers[:i]), syncs[:i])
 	}
 	for i := range layers {
-		layers[i].forward(layers[i+1:], out[i+1:])
+		layers[i].forward(toLinkers(layers[i+1:]), syncs[i+1:])
+	}
+	return syncs
+}
+
+func toLinkers(layers []LinkLayer) []linker {
+	out := make([]linker, len(layers))
+	for i, layer := range layers {
+		out[i] = layer
 	}
 	return out
 }
