@@ -4,8 +4,6 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/BurntSushi/toml"
-
 	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/layers"
 	"github.com/sclevine/packfile/sync"
@@ -71,11 +69,6 @@ func Detect(pf *packfile.Packfile, platformDir, planPath string) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.Create(planPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return toml.NewEncoder(f).Encode(planSections{requires, provides})
+	return writeTOML(planSections{requires, provides}, planPath)
 }
 

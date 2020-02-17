@@ -49,6 +49,8 @@ get-dep version defaults to layer version
 
 any layer with a provide can be referenced with "link"
 
+cache layers can be referenced with a "link"
+
 a layer with no provide or require can be referenced with "link"
 
 provide.test can be used to create custom inter-dependent layer rebuilding
@@ -56,6 +58,8 @@ provide.test can be used to create custom inter-dependent layer rebuilding
 provide.test is never skipped
 
 write-app layers are always re-built and run serially
+
+cache layers may be recovered from many builds ago, but all other layers must have been present during the last build
 
 PROBLEM: some layers need other layers during provide.test, but it forces unnecessary rebuilds in export chains
 SOLUTION: flag to add layer path to provide.test
@@ -74,11 +78,13 @@ metadata changes during provide are accessible in provide of layers that link to
 
 - the version from provide.test is always matched against the version from provide.test
 
-PROBLEM: no cache coherency guarantee for non-exported layers, so link-contents is a lie
+PROBLEM: no cache coherency guarantee for non-exported layers, so link-content is a lie
 IDEA: use UUID stored in layer metadata to rep unique build ID
-
-## TODO
-
+NOTES:
 - Use IDs for content-linked layers (think about guarantees)
-- prevent concurrent cache writes (and enforce order?)
-  - this can be accomplished by establishing dependency between layers that depend on the same cache
+  - Option #1: assume cache layers move together
+    - Only care about exported layers that are linked to stored, non-exported layers
+  - Option #2: assume cache layers may be independently out-of-sync
+    - Care about any layers that are linked to stored, non-exported layers
+- Use IDs for version-linked layers? (mismatch when old version layer comes back and matches)
+SOLUTION: all build layers must move together, so use UUID in store.toml + layer metadata

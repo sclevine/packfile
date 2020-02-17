@@ -19,12 +19,14 @@ import (
 type Build struct {
 	Streamer
 	LinkShare
-	Layer    *packfile.Layer
-	Requires []Require
-	Shell    string
-	AppDir   string
-	links    []linkInfo
-	syncs    []sync.Link
+	Layer       *packfile.Layer
+	Requires    []Require
+	Shell       string
+	AppDir      string
+	BuildID     string
+	LastBuildID string
+	links       []linkInfo
+	syncs       []sync.Link
 }
 
 func (l *Build) info() layerInfo {
@@ -53,7 +55,7 @@ func (l *Build) backward(targets []linker, syncs []*sync.Layer) {
 
 		if targets[i].locks(l) {
 			for j := range targets[i+1:] {
-				if k := i+1+j; targets[i].locks(targets[k]) {
+				if k := i + 1 + j; targets[i].locks(targets[k]) {
 					l.syncs = append(l.syncs, syncs[k].Link(sync.Cache))
 				}
 			}
@@ -187,14 +189,18 @@ func (l *Build) Test() (exists, matched bool) {
 	layerTOML.Build = l.Layer.Expose
 	layerTOML.Launch = l.Layer.Export
 
-	skipVersion := false
+	// TODO: use cached build ID when store.toml is implemented in lifecycle
+	cachedBuildID := l.LastBuildID // layerTOML.Metadata.BuildID
+	layerTOML.Metadata.BuildID = l.BuildID
+
+	missingVersion := false
 	oldVersion := layerTOML.Metadata.Version
 	newVersion, err := l.mdValue("version")
 	if err == nil {
 		layerTOML.Metadata.Version = newVersion
 	} else if os.IsNotExist(err) {
 		layerTOML.Metadata.Version = ""
-		skipVersion = true
+		missingVersion = true
 	} else {
 		l.Err = err
 		return false, false
@@ -204,7 +210,10 @@ func (l *Build) Test() (exists, matched bool) {
 		return false, false
 	}
 
-	if !skipVersion && newVersion == oldVersion {
+	if cachedBuildID != l.LastBuildID {
+		return false, false
+	}
+	if !missingVersion && newVersion == oldVersion {
 		if _, err := os.Stat(l.LayerDir); xerrors.Is(err, os.ErrNotExist) {
 			return false, !l.Layer.Expose && !l.Layer.Store
 		}
@@ -294,6 +303,7 @@ type layerTOML struct {
 	Cache    bool `toml:"cache"`
 	Metadata struct {
 		Version string `toml:"version"`
+		BuildID string `toml:"build-id"`
 	} `toml:"metadata"`
 }
 

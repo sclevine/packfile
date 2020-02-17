@@ -40,7 +40,7 @@ name = "<layer/cache name reference>"
 path-as = "<env var name for path>"
 version-as = "<env var name for version>"
 metadata-as = "<env var name for metadata path>"
-link-contents = false # always rebuild on change
+link-content = false # always rebuild on change
 link-version = false # rebuild on version change
 
 [layers.provide.test]

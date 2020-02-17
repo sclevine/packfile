@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
+	"github.com/google/uuid"
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
@@ -31,6 +32,10 @@ type launchTOML struct {
 	Processes []packfile.Process `toml:"processes"`
 }
 
+type buildStore struct {
+	BuildID string `toml:"build-id"`
+}
+
 func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error {
 	appDir, err := os.Getwd()
 	if err != nil {
@@ -40,6 +45,15 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 	if s := pf.Config.Shell; s != "" {
 		shell = s
 	}
+	storePath := filepath.Join(layersDir, "store.toml")
+	var store buildStore
+	if _, err := toml.DecodeFile(storePath, &store); os.IsNotExist(err) {
+		store = buildStore{}
+	} else if err != nil {
+		return err
+	}
+	lastBuildID := store.BuildID
+	store.BuildID = uuid.New().String()
 	var plan buildPlan
 	if _, err := toml.DecodeFile(planPath, &plan); err != nil {
 		return err
@@ -65,7 +79,7 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 		if lp.Build == nil && lp.Provide == nil && lp.Require != nil {
 			continue
 		}
-		// TODO: move metadata dir into individual layer Init/Cleanup methods
+		// TODO: move metadata dir into individual layer Init/Cleanup methods?
 		mdDir, err := ioutil.TempDir("", "packfile."+lp.Name)
 		if err != nil {
 			return err
@@ -78,12 +92,15 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 				MetadataDir: mdDir,
 				LayerDir:    layerDir,
 			},
-			Layer:    lp,
-			Requires: plan.get(lp.Name),
-			Shell:    shell,
-			AppDir:   appDir,
+			Layer:       lp,
+			Requires:    plan.get(lp.Name),
+			Shell:       shell,
+			AppDir:      appDir,
+			BuildID:     store.BuildID,
+			LastBuildID: lastBuildID,
 		})
 	}
+	// FIXME: delete cached layers that are no longer referenced
 	syncLayers := layers.LinkLayers(linkLayers)
 	for i := range syncLayers {
 		go func(i int) {
@@ -106,11 +123,8 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 	if err != nil {
 		return err
 	}
-	f, err := os.Create(planPath)
-	if err != nil {
+	if err := writeTOML(buildPlan{requires}, planPath); err != nil {
 		return err
 	}
-	defer f.Close()
-	return toml.NewEncoder(f).Encode(buildPlan{requires})
+	return writeTOML(store, storePath)
 }
-
