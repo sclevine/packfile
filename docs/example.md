@@ -4,7 +4,7 @@
 #### NPM
 ```toml
 [[processes]]
-name = "web"
+type = "web"
 command = "npm start"
 
 [[caches]]
@@ -31,12 +31,11 @@ echo "$sha-$(node -v)" > "$MD/version"
 """
 
 [layers.build]
-write-app = true
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
 mv node_modules “$LAYER/"
 mkdir "$LAYER/env"
-echo "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
+echo -n "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
 """
 
 [[layers.build.links]]
@@ -77,7 +76,7 @@ tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 #### Node.js
 ```toml
 [[processes]]
-name = "web"
+type = "web"
 command = "npm start"
 
 [[layers]]
@@ -120,12 +119,11 @@ md5sum package-lock.json | cut -d' ' -f1 > "$MD/version"
 """
 
 [layers.build]
-write-app = true
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
 mv node_modules "$LAYER/"
 mkdir "$LAYER/env"
-echo "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
+echo -n "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
 """
 
 [[layers.build.links]]
@@ -140,7 +138,7 @@ path-as = "NPM_CACHE"
 #### Simple TCP Server
 ```toml
 [[processes]]
-name = "web"
+type = "web"
 command = "run"
 
 [[layers]]

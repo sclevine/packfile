@@ -75,8 +75,7 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 		if lp.Provide != nil && lp.Build != nil {
 			return xerrors.Errorf("layer '%s' has both provide and build sections", lp.Name)
 		}
-		// TODO: don't allow provide() to return nil, add test() with same idea?
-		if lp.Build == nil && lp.Provide == nil && lp.Require != nil {
+		if lp.Build == nil && lp.Provide == nil {
 			continue
 		}
 		// TODO: move metadata dir into individual layer Init/Cleanup methods?

@@ -29,11 +29,12 @@ type Build struct {
 	syncs       []sync.Link
 }
 
-func (l *Build) info() layerInfo {
-	return layerInfo{
+func (l *Build) info() linkerInfo {
+	return linkerInfo{
 		name:  l.Layer.Name,
 		share: &l.LinkShare,
 		links: l.provide().Links,
+		app:   l.provide().WriteApp,
 	}
 }
 
@@ -42,43 +43,47 @@ func (l *Build) locks(_ linker) bool {
 }
 
 func (l *Build) backward(targets []linker, syncs []*sync.Layer) {
+	from := l.info()
 	for i := range targets {
-		from := l.info()
 		to := targets[i].info()
 
 		for _, link := range from.links {
 			if link.Name == to.name {
 				l.links = append(l.links, linkInfo{link, to.share})
-				l.syncs = append(l.syncs, syncs[i].Link(sync.Require))
+				l.syncs = append(l.syncs, syncs[i].Link(sync.LinkRequire))
 			}
 		}
 
 		if targets[i].locks(l) {
 			for j := range targets[i+1:] {
 				if k := i + 1 + j; targets[i].locks(targets[k]) {
-					l.syncs = append(l.syncs, syncs[k].Link(sync.Cache))
+					l.syncs = append(l.syncs, syncs[k].Link(sync.LinkSerial))
 				}
 			}
+		}
+
+		if from.app && to.app {
+			l.syncs = append(l.syncs, syncs[i].Link(sync.LinkSerial))
 		}
 	}
 }
 
 func (l *Build) forward(targets []linker, syncs []*sync.Layer) {
+	from := l.info()
 	for i := range targets {
-		from := l.info()
 		to := targets[i].info()
 
 		for _, link := range to.links {
 			if link.Name == from.name {
-				var opts []sync.LinkOption
-				if link.LinkContent {
-					opts = append(opts, sync.Content)
-				}
+				t := sync.LinkNone
 				if link.LinkVersion {
-					opts = append(opts, sync.Version)
+					t = sync.LinkVersion
 				}
-				if len(opts) > 0 {
-					l.syncs = append(l.syncs, syncs[i].Link(opts...))
+				if link.LinkContent {
+					t = sync.LinkContent
+				}
+				if t != sync.LinkNone {
+					l.syncs = append(l.syncs, syncs[i].Link(t))
 				}
 			}
 		}
@@ -86,22 +91,21 @@ func (l *Build) forward(targets []linker, syncs []*sync.Layer) {
 }
 
 func (l *Build) Links() (links []sync.Link, forTest bool) {
-	return l.syncs, l.forTest()
+	return l.syncs, l.fullEnv()
 }
 
-func (l *Build) forTest() bool {
-	if l.provide() != nil && l.provide().Test != nil {
-		return l.provide().Test.UseLinks
+func (l *Build) fullEnv() bool {
+	if l.provide().Test != nil {
+		return l.provide().Test.FullEnv
 	}
 	return false
 }
 
 func (l *Build) provide() *packfile.Provide {
-	provide := l.Layer.Build
 	if l.Layer.Provide != nil {
-		provide = l.Layer.Provide
+		return l.Layer.Provide
 	}
-	return provide
+	return l.Layer.Build
 }
 
 func (l *Build) layerTOML() string {
@@ -109,18 +113,16 @@ func (l *Build) layerTOML() string {
 }
 
 func (l *Build) Test() (exists, matched bool) {
-	if l.provide() != nil {
-		if l.Layer.Require == nil {
-			if err := writeMetadata(l.MetadataDir, l.Layer.Version, l.Layer.Metadata); err != nil {
-				l.Err = err
-				return false, false
-			}
+	if l.Layer.Require == nil {
+		if err := writeMetadata(l.MetadataDir, l.Layer.Version, l.Layer.Metadata); err != nil {
+			l.Err = err
+			return false, false
 		}
-		for _, req := range l.Requires {
-			if err := writeMetadata(l.MetadataDir, req.Version, req.Metadata); err != nil {
-				l.Err = err
-				return false, false
-			}
+	}
+	for _, req := range l.Requires {
+		if err := writeMetadata(l.MetadataDir, req.Version, req.Metadata); err != nil {
+			l.Err = err
+			return false, false
 		}
 	}
 
@@ -132,7 +134,7 @@ func (l *Build) Test() (exists, matched bool) {
 			l.Err = xerrors.Errorf("link '%s' failed: %w", link.Name, link.Err)
 			return false, false
 		}
-		if l.forTest() && link.PathEnv != "" {
+		if l.fullEnv() && link.PathEnv != "" {
 			env = append(env, link.PathEnv+"="+link.LayerDir)
 		}
 		if link.VersionEnv != "" {
@@ -147,7 +149,7 @@ func (l *Build) Test() (exists, matched bool) {
 			env = append(env, link.MetadataEnv+"="+link.MetadataDir)
 		}
 	}
-	if l.forTest() {
+	if l.fullEnv() {
 		var err error
 		env, err = setupEnv(env, l.links)
 		if err != nil {
@@ -155,28 +157,26 @@ func (l *Build) Test() (exists, matched bool) {
 			return
 		}
 	}
-	if l.provide() == nil || l.provide().Test == nil {
-		return false, false
-	}
-
-	cmd, c, err := execCmd(&l.provide().Test.Exec, l.Shell)
-	if err != nil {
-		l.Err = err
-		return false, false
-	}
-	defer c.Close()
-	cmd.Dir = l.AppDir
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = l.Writers()
-	if err := cmd.Run(); err != nil {
-		if err, ok := err.(*exec.ExitError); ok {
-			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				l.Err = CodeError(status.ExitStatus())
-				return false, false
-			}
+	if l.provide().Test != nil {
+		cmd, c, err := execCmd(&l.provide().Test.Exec, l.Shell)
+		if err != nil {
+			l.Err = err
+			return false, false
 		}
-		l.Err = err
-		return false, false
+		defer c.Close()
+		cmd.Dir = l.AppDir
+		cmd.Env = env
+		cmd.Stdout, cmd.Stderr = l.Writers()
+		if err := cmd.Run(); err != nil {
+			if err, ok := err.(*exec.ExitError); ok {
+				if status, ok := err.Sys().(syscall.WaitStatus); ok {
+					l.Err = CodeError(status.ExitStatus())
+					return false, false
+				}
+			}
+			l.Err = err
+			return false, false
+		}
 	}
 
 	layerTOMLPath := l.LayerDir + ".toml"
@@ -193,27 +193,21 @@ func (l *Build) Test() (exists, matched bool) {
 	cachedBuildID := l.LastBuildID // layerTOML.Metadata.BuildID
 	layerTOML.Metadata.BuildID = l.BuildID
 
-	missingVersion := false
 	oldVersion := layerTOML.Metadata.Version
-	newVersion, err := l.mdValue("version")
-	if err == nil {
-		layerTOML.Metadata.Version = newVersion
-	} else if os.IsNotExist(err) {
-		layerTOML.Metadata.Version = ""
-		missingVersion = true
-	} else {
-		l.Err = err
-		return false, false
-	}
+	newVersion := l.version()
+	layerTOML.Metadata.Version = newVersion
+
 	if err := writeTOML(layerTOML, layerTOMLPath); err != nil {
 		l.Err = err
 		return false, false
 	}
 
-	if cachedBuildID != l.LastBuildID {
+	if cachedBuildID != l.LastBuildID ||
+		l.provide().WriteApp ||
+		l.provide().Test == nil {
 		return false, false
 	}
-	if !missingVersion && newVersion == oldVersion {
+	if newVersion != "" && newVersion == oldVersion {
 		if _, err := os.Stat(l.LayerDir); xerrors.Is(err, os.ErrNotExist) {
 			return false, !l.Layer.Expose && !l.Layer.Store
 		}
@@ -222,13 +216,12 @@ func (l *Build) Test() (exists, matched bool) {
 	return false, false
 }
 
-func (l *Build) mdValue(key string) (string, error) {
-	// FIXME: need to account for empty version file matching missing layer TOML
-	value, err := ioutil.ReadFile(filepath.Join(l.MetadataDir, key))
-	if err != nil {
-		return "", err
+func (l *Build) version() string {
+	value, err := ioutil.ReadFile(filepath.Join(l.MetadataDir, "version"))
+	if err != nil || len(value) == 0 {
+		return ""
 	}
-	return string(value), err
+	return strings.TrimSuffix(string(value), "\n")
 }
 
 func (l *Build) Run() {
@@ -271,9 +264,6 @@ func (l *Build) Run() {
 
 	if err := os.MkdirAll(l.LayerDir, 0777); err != nil {
 		l.Err = err
-		return
-	}
-	if l.provide() == nil {
 		return
 	}
 	cmd, c, err := execCmd(&l.provide().Exec, l.Shell)

@@ -19,8 +19,8 @@ type Cache struct {
 	AppDir string
 }
 
-func (l *Cache) info() layerInfo {
-	return layerInfo{
+func (l *Cache) info() linkerInfo {
+	return linkerInfo{
 		name:  l.Cache.Name,
 		share: &l.LinkShare,
 	}

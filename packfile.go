@@ -63,8 +63,7 @@ type Exec struct {
 
 type Test struct {
 	Exec
-	WriteApp bool `toml:"write-app"`
-	UseLinks bool `toml:"use-links"`
+	FullEnv  bool `toml:"full-env"`
 }
 
 type Link struct {

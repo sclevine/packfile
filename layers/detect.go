@@ -17,8 +17,8 @@ type Detect struct {
 	AppDir string
 }
 
-func (l *Detect) info() layerInfo {
-	return layerInfo{
+func (l *Detect) info() linkerInfo {
+	return linkerInfo{
 		name:  l.Layer.Name,
 		share: &l.LinkShare,
 	}

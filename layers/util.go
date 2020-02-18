@@ -1,6 +1,7 @@
 package layers
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -30,7 +31,7 @@ type LinkLayer interface {
 }
 
 type linker interface {
-	info() layerInfo
+	info() linkerInfo
 	locks(target linker) bool
 	forward(targets []linker, syncs []*sync.Layer)
 	backward(targets []linker, syncs []*sync.Layer)
@@ -51,10 +52,11 @@ func (l linkInfo) layerTOML() string {
 	return l.LayerDir + ".toml"
 }
 
-type layerInfo struct {
+type linkerInfo struct {
 	name  string
 	share *LinkShare
 	links []packfile.Link
+	app   bool
 }
 
 type CodeError int
@@ -211,6 +213,7 @@ func readRequire(name, path string) (Require, error) {
 		if err != nil {
 			return err
 		}
+		value = bytes.TrimSuffix(value, []byte("\n"))
 		if name == "version" {
 			out.Version = string(value)
 		} else {

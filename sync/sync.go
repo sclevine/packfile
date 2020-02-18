@@ -47,14 +47,11 @@ const (
 )
 
 type Link struct {
-	require bool
-	content bool
-	version bool
-	cache   bool
-	testWG  *sync.WaitGroup
-	runWG   *sync.WaitGroup
-	c       chan<- Event
-	done    chan struct{}
+	t      LinkType
+	testWG *sync.WaitGroup
+	runWG  *sync.WaitGroup
+	c      chan<- Event
+	done   chan struct{}
 }
 
 type Layer struct {
@@ -90,39 +87,24 @@ func NewLayer(lock *Lock, runner Runner) *Layer {
 	}
 }
 
-type LinkOption int
+type LinkType int
 
 const (
-	Require LinkOption = iota
-	Content
-	Version
-	Cache
+	LinkNone LinkType = iota
+	LinkRequire
+	LinkContent
+	LinkVersion
+	LinkSerial
 )
 
-func (l LinkOption) apply(link *Link) {
-	switch l {
-	case Require:
-		link.require = true
-	case Content:
-		link.content = true
-	case Version:
-		link.version = true
-	case Cache:
-		link.cache = true
+func (l *Layer) Link(t LinkType) Link {
+	return Link{
+		t:      t,
+		testWG: l.testWG,
+		runWG:  l.runWG,
+		c:      l.c,
+		done:   l.done,
 	}
-}
-
-func (l *Layer) Link(opts ...LinkOption) Link {
-	link := Link{
-		testWG:  l.testWG,
-		runWG:   l.runWG,
-		c:       l.c,
-		done:    l.done,
-	}
-	for _, opt := range opts {
-		opt.apply(&link)
-	}
-	return link
 }
 
 func (l *Layer) Wait() {
@@ -154,7 +136,7 @@ func (l *Layer) try(links []Link) {
 	defer l.runWG.Done()
 
 	for _, link := range links {
-		if link.require {
+		if link.t == LinkRequire {
 			link.testWG.Wait()
 		}
 	}
@@ -173,7 +155,7 @@ func (l *Layer) try(links []Link) {
 		case <-l.lock.wait():
 			if l.change {
 				for _, link := range links {
-					if link.require || link.cache {
+					if link.t == LinkRequire || link.t == LinkSerial {
 						link.runWG.Wait()
 					}
 				}
@@ -190,13 +172,13 @@ func (l *Layer) tryAfter(links []Link) {
 	defer l.runWG.Done()
 
 	for _, link := range links {
-		if link.require {
+		if link.t == LinkRequire {
 			l.send(link, EventRequire)
 		}
 	}
 	l.lock.release()
 	for _, link := range links {
-		if link.require || link.cache {
+		if link.t == LinkRequire || link.t == LinkSerial {
 			link.runWG.Wait()
 		}
 	}
@@ -226,10 +208,10 @@ func (l *Layer) trigger(links []Link, ev Event) {
 		return
 	}
 	for _, link := range links {
-		if link.require {
+		switch link.t {
+		case LinkRequire:
 			l.send(link, EventRequire)
-		}
-		if link.content {
+		case LinkContent:
 			l.send(link, EventChange)
 		}
 	}
@@ -243,10 +225,10 @@ func (l *Layer) init(links []Link) {
 			panic("invalid state: present but non-matching")
 		}
 		for _, link := range links {
-			if link.require {
+			switch link.t {
+			case LinkRequire:
 				l.send(link, EventRequire)
-			}
-			if link.content || link.version {
+			case LinkContent, LinkVersion:
 				l.send(link, EventChange)
 			}
 		}

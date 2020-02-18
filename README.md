@@ -39,7 +39,9 @@ export/expose flags on these layers override previous actual layer definitions
 
 a layer with no require or require has code 100 does not require a layer, but may provide it
 
-a missing version is always considered a mismatch
+a layer with a missing version is always considered a mismatch
+
+a layer with missing test code is always considered a mismatch
 
 $MD accessible during require/provide.test/provide
 
@@ -50,8 +52,6 @@ get-dep version defaults to layer version
 any layer with a provide can be referenced with "link"
 
 cache layers can be referenced with a "link"
-
-a layer with no provide or require can be referenced with "link"
 
 provide.test can be used to create custom inter-dependent layer rebuilding
 
@@ -88,3 +88,6 @@ NOTES:
     - Care about any layers that are linked to stored, non-exported layers
 - Use IDs for version-linked layers? (mismatch when old version layer comes back and matches)
 SOLUTION: all build layers must move together, so use UUID in store.toml + layer metadata
+
+TODO:
+- Use checksum of instructions to determine change

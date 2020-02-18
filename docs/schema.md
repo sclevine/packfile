@@ -7,7 +7,7 @@ shell = "/usr/bin/env bash"
 serial = false
 
 [[processes]]
-name = "<command name>"
+type = "<command name>"
 command = "<command value>"
 args = ["command arg"]
 direct = false
@@ -44,8 +44,7 @@ link-content = false # always rebuild on change
 link-version = false # rebuild on version change
 
 [layers.provide.test]
-write-app = false
-use-links = false # provide the path/layer for test
+full-env = false # provide links paths/layers for test + respect write-app
 shell = "/usr/bin/env bash"
 inline = "<script>"
 path = "<path to script>"
