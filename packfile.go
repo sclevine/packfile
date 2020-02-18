@@ -7,6 +7,7 @@ type Packfile struct {
 	Processes []Process `toml:"processes"`
 	Caches    []Cache   `toml:"caches"`
 	Layers    []Layer   `toml:"layers"`
+	Slices    []Slice   `toml:"slices"`
 }
 
 type Config struct {
@@ -22,6 +23,10 @@ type Process struct {
 	Command string   `toml:"command"`
 	Args    []string `toml:"args"`
 	Direct  bool     `toml:"direct"`
+}
+
+type Slice struct {
+	Paths []string `tom:"paths"`
 }
 
 type Cache struct {
@@ -85,6 +90,7 @@ type Envs struct {
 	Build  []Env `toml:"build"`
 	Launch []Env `toml:"launch"`
 }
+
 type Env struct {
 	Name  string `toml:"name"`
 	Value string `toml:"value"`

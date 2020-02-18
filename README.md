@@ -91,3 +91,7 @@ SOLUTION: all build layers must move together, so use UUID in store.toml + layer
 
 TODO:
 - Use checksum of instructions to determine change
+- profile
+- env (w/ evaluation?)
+- deps
+- relative paths for profile/execs

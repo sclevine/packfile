@@ -30,6 +30,7 @@ func (b buildPlan) get(name string) []layers.Require {
 
 type launchTOML struct {
 	Processes []packfile.Process `toml:"processes"`
+	Slices    []packfile.Slice   `toml:"slices"`
 }
 
 type buildStore struct {
@@ -115,6 +116,7 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 	}
 	if err := writeTOML(launchTOML{
 		Processes: pf.Processes,
+		Slices:    pf.Slices,
 	}, filepath.Join(layersDir, "launch.toml")); err != nil {
 		return err
 	}
