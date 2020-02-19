@@ -87,9 +87,10 @@ NOTES:
   - Option #2: assume cache layers may be independently out-of-sync
     - Care about any layers that are linked to stored, non-exported layers
 - Use IDs for version-linked layers? (mismatch when old version layer comes back and matches)
-SOLUTION: all build layers must move together, so use UUID in store.toml + layer metadata
+SOLUTION: all build layers must move together, so use UUID in store.toml + build layer metadata
 
 TODO:
+- BOM is reset without build-time metadata on layer reuse
 - Use checksum of instructions to determine change
 - profile
 - env (w/ evaluation?)

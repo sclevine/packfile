@@ -34,7 +34,9 @@ type launchTOML struct {
 }
 
 type buildStore struct {
-	BuildID string `toml:"build-id"`
+	Metadata struct {
+		BuildID string `toml:"build-id"`
+	} `toml:"metadata"`
 }
 
 func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error {
@@ -53,8 +55,8 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 	} else if err != nil {
 		return err
 	}
-	lastBuildID := store.BuildID
-	store.BuildID = uuid.New().String()
+	lastBuildID := store.Metadata.BuildID
+	store.Metadata.BuildID = uuid.New().String()
 	var plan buildPlan
 	if _, err := toml.DecodeFile(planPath, &plan); err != nil {
 		return err
@@ -96,7 +98,7 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 			Requires:    plan.get(lp.Name),
 			Shell:       shell,
 			AppDir:      appDir,
-			BuildID:     store.BuildID,
+			BuildID:     store.Metadata.BuildID,
 			LastBuildID: lastBuildID,
 		})
 	}

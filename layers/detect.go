@@ -41,7 +41,7 @@ func (l *Detect) Test() (exists, matched bool) {
 }
 
 func (l *Detect) Run() {
-	if err := writeMetadata(l.MetadataDir, l.Layer.Version, l.Layer.Metadata); err != nil {
+	if err := writeLayerMetadata(l.MetadataDir, l.Layer); err != nil {
 		l.Err = err
 		return
 	}

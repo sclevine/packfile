@@ -1,7 +1,6 @@
 package layers
 
 import (
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,13 +113,13 @@ func (l *Build) layerTOML() string {
 
 func (l *Build) Test() (exists, matched bool) {
 	if l.Layer.Require == nil {
-		if err := writeMetadata(l.MetadataDir, l.Layer.Version, l.Layer.Metadata); err != nil {
+		if err := writeLayerMetadata(l.MetadataDir, l.Layer); err != nil {
 			l.Err = err
 			return false, false
 		}
 	}
 	for _, req := range l.Requires {
-		if err := writeMetadata(l.MetadataDir, req.Version, req.Metadata); err != nil {
+		if err := writeAllMetadata(l.MetadataDir, req.Version, req.Metadata); err != nil {
 			l.Err = err
 			return false, false
 		}
@@ -186,15 +185,15 @@ func (l *Build) Test() (exists, matched bool) {
 		return false, false
 	}
 	layerTOML.Cache = l.Layer.Store
-	layerTOML.Build = l.Layer.Expose
-	layerTOML.Launch = l.Layer.Export
+	layerTOML.Build = readMetadata(l.MetadataDir, "build") == "true"
+	layerTOML.Launch = readMetadata(l.MetadataDir, "launch") == "true"
 
 	// TODO: use cached build ID when store.toml is implemented in lifecycle
 	cachedBuildID := l.LastBuildID // layerTOML.Metadata.BuildID
 	layerTOML.Metadata.BuildID = l.BuildID
 
 	oldVersion := layerTOML.Metadata.Version
-	newVersion := l.version()
+	newVersion := readMetadata(l.MetadataDir, "version")
 	layerTOML.Metadata.Version = newVersion
 
 	if err := writeTOML(layerTOML, layerTOMLPath); err != nil {
@@ -214,14 +213,6 @@ func (l *Build) Test() (exists, matched bool) {
 		return true, true
 	}
 	return false, false
-}
-
-func (l *Build) version() string {
-	value, err := ioutil.ReadFile(filepath.Join(l.MetadataDir, "version"))
-	if err != nil || len(value) == 0 {
-		return ""
-	}
-	return strings.TrimSuffix(string(value), "\n")
 }
 
 func (l *Build) Run() {

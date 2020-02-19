@@ -81,8 +81,23 @@ func IsError(err error) bool {
 	return false
 }
 
-func writeMetadata(path, version string, metadata map[string]string) error {
-	for k, v := range metadata {
+func readMetadata(path, key string) string {
+	value, err := ioutil.ReadFile(filepath.Join(path, key))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(string(value), "\n")
+}
+
+func mergeBoolStrings(s1, s2 string) string {
+	return fmt.Sprintf("%t", s1 == "true" || s2 == "true")
+}
+
+func writeAllMetadata(path, version string, metadata map[string]string) error {
+	md := copyMap(metadata)
+	md["launch"] = mergeBoolStrings(md["launch"], readMetadata(path, "launch"))
+	md["build"] = mergeBoolStrings(md["build"], readMetadata(path, "build"))
+	for k, v := range md {
 		if err := ioutil.WriteFile(filepath.Join(path, k), []byte(v), 0666); err != nil {
 			return err
 		}
@@ -91,6 +106,33 @@ func writeMetadata(path, version string, metadata map[string]string) error {
 		return nil
 	}
 	return ioutil.WriteFile(filepath.Join(path, "version"), []byte(version), 0666)
+}
+
+func copyMap(m map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+func writeLayerMetadata(path string, layer *packfile.Layer) error {
+	if err := writeAllMetadata(path, layer.Version, layer.Metadata); err != nil {
+		return err
+	}
+	for _, s := range []struct {
+		k string
+		v bool
+	}{
+		{"launch", layer.Export},
+		{"build", layer.Expose},
+	} {
+		b := []byte(fmt.Sprintf("%t", s.v))
+		if err := ioutil.WriteFile(filepath.Join(path, s.k), b, 0666); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // NOTE: implements UNIX exec-style shebang parsing for shell
