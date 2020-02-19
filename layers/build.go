@@ -1,6 +1,7 @@
 package layers
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,6 +112,18 @@ func (l *Build) layerTOML() string {
 	return l.LayerDir + ".toml"
 }
 
+func mergeRequire(path string, req Require) error {
+	md := copyMap(req.Metadata)
+	md["launch"] = mergeBoolStrings(md["launch"], readMetadata(path, "launch"))
+	md["build"] = mergeBoolStrings(md["build"], readMetadata(path, "build"))
+	md["version"] = req.Version
+	return writeAllMetadata(path, md)
+}
+
+func mergeBoolStrings(s1, s2 string) string {
+	return fmt.Sprintf("%t", s1 == "true" || s2 == "true")
+}
+
 func (l *Build) Test() (exists, matched bool) {
 	if l.Layer.Require == nil {
 		if err := writeLayerMetadata(l.MetadataDir, l.Layer); err != nil {
@@ -119,7 +132,7 @@ func (l *Build) Test() (exists, matched bool) {
 		}
 	}
 	for _, req := range l.Requires {
-		if err := writeAllMetadata(l.MetadataDir, req.Version, req.Metadata); err != nil {
+		if err := mergeRequire(l.MetadataDir, req); err != nil {
 			l.Err = err
 			return false, false
 		}
@@ -276,6 +289,42 @@ func (l *Build) Run() {
 		l.Err = err
 		return
 	}
+
+	layerTOMLPath := l.LayerDir + ".toml"
+	layerTOML, err := readLayerTOML(layerTOMLPath)
+	if err != nil {
+		l.Err = err
+		return
+	}
+	layerTOML.Metadata.Saved, err = readAllMetadata(l.MetadataDir)
+	delete(layerTOML.Metadata.Saved, "launch")
+	delete(layerTOML.Metadata.Saved, "build")
+	if err != nil {
+		l.Err = err
+		return
+	}
+	l.Err = writeTOML(layerTOML, layerTOMLPath)
+}
+
+func (l *Build) Skip() {
+	layerTOMLPath := l.LayerDir + ".toml"
+	layerTOML, err := readLayerTOML(layerTOMLPath)
+	if err != nil {
+		l.Err = err
+		return
+	}
+	if err := deleteAllMetadata(l.MetadataDir); err != nil {
+		l.Err = err
+		return
+	}
+	saved := copyMap(layerTOML.Metadata.Saved)
+	if layerTOML.Launch {
+		saved["launch"] = "true"
+	}
+	if layerTOML.Build {
+		saved["build"] = "true"
+	}
+	l.Err = writeAllMetadata(l.MetadataDir, saved)
 }
 
 type layerTOML struct {
@@ -283,8 +332,9 @@ type layerTOML struct {
 	Build    bool `toml:"build"`
 	Cache    bool `toml:"cache"`
 	Metadata struct {
-		Version string `toml:"version"`
-		BuildID string `toml:"build-id"`
+		Version string            `toml:"version"`
+		BuildID string            `toml:"build-id"`
+		Saved   map[string]string `toml:"saved"` // TODO: fails to accept all metadata at build
 	} `toml:"metadata"`
 }
 

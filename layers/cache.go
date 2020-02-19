@@ -91,3 +91,5 @@ func (l *Cache) Run() {
 		return
 	}
 }
+
+func (l *Cache) Skip() {}

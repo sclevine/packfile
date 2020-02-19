@@ -90,7 +90,7 @@ NOTES:
 SOLUTION: all build layers must move together, so use UUID in store.toml + build layer metadata
 
 TODO:
-- BOM is reset without build-time metadata on layer reuse
+- Occasional deadlock
 - Use checksum of instructions to determine change
 - profile
 - env (w/ evaluation?)

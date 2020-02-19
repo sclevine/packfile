@@ -67,9 +67,10 @@ type Layer struct {
 }
 
 type Runner interface {
-	Links() (links []Link, forTest bool)
-	Test() (exists, matched bool)
 	Run()
+	Skip()
+	Test() (exists, matched bool)
+	Links() (links []Link, forTest bool)
 }
 
 func NewLayer(lock *Lock, runner Runner) *Layer {
@@ -160,6 +161,8 @@ func (l *Layer) try(links []Link) {
 					}
 				}
 				l.runner.Run()
+			} else {
+				l.runner.Skip()
 			}
 			return
 		}

@@ -71,3 +71,5 @@ func (l *Detect) Run() {
 		return
 	}
 }
+
+func (l *Detect) Skip() {}
