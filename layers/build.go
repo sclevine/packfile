@@ -1,7 +1,9 @@
 package layers
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -209,12 +211,17 @@ func (l *Build) Test() (exists, matched bool) {
 	newVersion := readMetadata(l.MetadataDir, "version")
 	layerTOML.Metadata.Version = newVersion
 
+	oldDigest := layerTOML.Metadata.CodeDigest
+	newDigest := l.digest()
+	layerTOML.Metadata.CodeDigest = newDigest
+
 	if err := writeTOML(layerTOML, layerTOMLPath); err != nil {
 		l.Err = err
 		return false, false
 	}
 
 	if cachedBuildID != l.LastBuildID ||
+		newDigest != oldDigest ||
 		l.provide().WriteApp ||
 		l.provide().Test == nil {
 		return false, false
@@ -232,6 +239,8 @@ func (l *Build) Run() {
 	if l.Err != nil {
 		return
 	}
+	w, _ := l.Streamer.Writers()
+	fmt.Fprintf(w, "Building layer %s.\n", l.Layer.Name)
 	if err := os.RemoveAll(l.LayerDir); err != nil {
 		l.Err = err
 		return
@@ -307,6 +316,12 @@ func (l *Build) Run() {
 }
 
 func (l *Build) Skip() {
+	if l.Err != nil {
+		return
+	}
+	w, _ := l.Streamer.Writers()
+	fmt.Fprintf(w, "Skipping layer %s.\n", l.Layer.Name)
+
 	layerTOMLPath := l.LayerDir + ".toml"
 	layerTOML, err := readLayerTOML(layerTOMLPath)
 	if err != nil {
@@ -327,14 +342,58 @@ func (l *Build) Skip() {
 	l.Err = writeAllMetadata(l.MetadataDir, saved)
 }
 
+func (l *Build) digest() string {
+	hash := sha256.New()
+	writeField(hash, "build")
+	writeField(hash, l.provide().Shell, l.provide().Inline)
+	writeFile(hash, l.provide().Path)
+
+	for _, dep := range l.provide().Deps {
+		writeField(hash, dep.Name, dep.Version, dep.URI, dep.SHA)
+	}
+	for _, file := range l.provide().Profile {
+		writeField(hash, file.Inline)
+		writeFile(hash, file.Path)
+	}
+	for _, env := range l.provide().Env.Launch {
+		writeField(hash, env.Name, env.Value)
+	}
+	for _, env := range l.provide().Env.Build {
+		writeField(hash, env.Name, env.Value)
+	}
+	for _, link := range l.provide().Links {
+		writeField(hash, link.Name, link.PathEnv, link.VersionEnv, link.MetadataEnv)
+		fmt.Fprintf(hash, "%t\n%t\n", link.LinkContent, link.LinkVersion)
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil))
+}
+
+func writeField(out io.Writer, values ...string) {
+	for _, v := range values {
+		fmt.Fprintln(out, v)
+	}
+}
+
+func writeFile(out io.Writer, path string) {
+	if path != "" {
+		f, err := os.Open(path)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		fmt.Fprintln(out, f)
+	}
+}
+
 type layerTOML struct {
 	Launch   bool `toml:"launch"`
 	Build    bool `toml:"build"`
 	Cache    bool `toml:"cache"`
 	Metadata struct {
-		Version string            `toml:"version"`
-		BuildID string            `toml:"build-id"`
-		Saved   map[string]string `toml:"saved"` // TODO: fails to accept all metadata at build
+		Version    string            `toml:"version,omitempty"`
+		BuildID    string            `toml:"build-id,omitempty"`
+		CodeDigest string            `toml:"code-digest"`
+		Saved      map[string]string `toml:"saved,omitempty"` // TODO: fails to accept all metadata at build
 	} `toml:"metadata"`
 }
 
