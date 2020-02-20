@@ -62,47 +62,60 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 		return err
 	}
 	var linkLayers []layers.LinkLayer
+	layerNames := map[string]struct{}{}
 	for i := range pf.Caches {
+		cache := &pf.Caches[i]
+		layerNames[cache.Name] = struct{}{}
 		linkLayers = append(linkLayers, &layers.Cache{
 			Streamer: sync.NewStreamer(),
 			LinkShare: layers.LinkShare{
 				LayerDir: filepath.Join(layersDir, pf.Caches[i].Name),
 			},
-			Cache:  &pf.Caches[i],
+			Cache:  cache,
 			Shell:  shell,
 			AppDir: appDir,
 		})
 	}
 	for i := range pf.Layers {
-		lp := &pf.Layers[i]
-		if lp.Provide != nil && lp.Build != nil {
-			return xerrors.Errorf("layer '%s' has both provide and build sections", lp.Name)
+		layer := &pf.Layers[i]
+		layerNames[layer.Name] = struct{}{}
+		if layer.Provide != nil && layer.Build != nil {
+			return xerrors.Errorf("layer '%s' has both provide and build sections", layer.Name)
 		}
-		if lp.Build == nil && lp.Provide == nil {
+		if layer.Build == nil && layer.Provide == nil {
 			continue
 		}
 		// TODO: move metadata dir into individual layer Init/Cleanup methods?
-		mdDir, err := ioutil.TempDir("", "packfile."+lp.Name)
+		mdDir, err := ioutil.TempDir("", "packfile."+layer.Name)
 		if err != nil {
 			return err
 		}
 		defer os.RemoveAll(mdDir)
-		layerDir := filepath.Join(layersDir, lp.Name)
+		layerDir := filepath.Join(layersDir, layer.Name)
 		linkLayers = append(linkLayers, &layers.Build{
 			Streamer: sync.NewStreamer(),
 			LinkShare: layers.LinkShare{
 				MetadataDir: mdDir,
 				LayerDir:    layerDir,
 			},
-			Layer:       lp,
-			Requires:    plan.get(lp.Name),
+			Layer:       layer,
+			Requires:    plan.get(layer.Name),
 			Shell:       shell,
 			AppDir:      appDir,
 			BuildID:     store.Metadata.BuildID,
 			LastBuildID: lastBuildID,
 		})
 	}
-	// FIXME: delete cached layers that are no longer referenced
+	if err := eachDir(layersDir, func(name string) error {
+		if _, ok := layerNames[name]; !ok {
+			if err := os.RemoveAll(filepath.Join(layersDir, name)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
 	syncLayers := layers.LinkLayers(linkLayers)
 	for i := range syncLayers {
 		go func(i int) {
