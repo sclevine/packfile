@@ -54,6 +54,10 @@ path = "<path to script>"
 name = "<dep name>"
 version = "<dep version>"
 uri = "<dep uri>"
+sha = "<dep sha checksum>"
+
+[layers.provide.deps.metadata]
+# additional metadata
 
 [layers.provide]
 write-app = false

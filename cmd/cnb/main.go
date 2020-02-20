@@ -18,7 +18,11 @@ func main() {
 	command := os.Args[0]
 
 	var pf packfile.Packfile
-	if _, err := toml.DecodeFile("packfile.toml", &pf); err != nil {
+	pfPath := filepath.Join(filepath.Dir(filepath.Dir(command)), "packfile.toml")
+	if _, err := os.Stat(pfPath); os.IsNotExist(err) {
+		pfPath = filepath.Join(".", "packfile.toml")
+	}
+	if _, err := toml.DecodeFile(pfPath, &pf); err != nil {
 		log.Fatalf("Error: %s", err)
 	}
 	switch filepath.Base(command) {

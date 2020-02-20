@@ -89,6 +89,8 @@ NOTES:
 - Use IDs for version-linked layers? (mismatch when old version layer comes back and matches)
 SOLUTION: all build layers must move together, so use UUID in store.toml + build layer metadata
 
+Rebuild on: provide exec change, deps field changes, profile changes, env build/launch changes, link as- changes
+
 TODO:
 - Occasional deadlock
 - Use checksum of instructions to determine change
@@ -96,3 +98,4 @@ TODO:
 - env (w/ evaluation?)
 - deps
 - relative paths for profile/execs
+- multi-level metadata

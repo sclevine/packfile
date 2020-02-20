@@ -68,7 +68,7 @@ type Exec struct {
 
 type Test struct {
 	Exec
-	FullEnv  bool `toml:"full-env"`
+	FullEnv bool `toml:"full-env"`
 }
 
 type Link struct {
@@ -81,9 +81,11 @@ type Link struct {
 }
 
 type Dep struct {
-	Name    string `toml:"name"`
-	Version string `toml:"version"`
-	URI     string `toml:"uri"`
+	Name     string                 `toml:"name"`
+	Version  string                 `toml:"version"`
+	URI      string                 `toml:"uri"`
+	SHA      string                 `toml:"sha"`
+	Metadata map[string]interface{} `toml:"metadata"`
 }
 
 type Envs struct {
