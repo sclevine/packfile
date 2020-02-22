@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -119,7 +120,7 @@ func writeLayerMetadata(path string, layer *packfile.Layer) error {
 	}
 	return writeAllMetadata(path, map[string]string{
 		"launch": fmt.Sprintf("%t", layer.Export),
-		"build": fmt.Sprintf("%t", layer.Expose),
+		"build":  fmt.Sprintf("%t", layer.Expose),
 	})
 }
 
@@ -165,6 +166,76 @@ func execCmd(e *packfile.Exec, shell string) (*exec.Cmd, io.Closer, error) {
 	}
 
 	return exec.Command(shell, append(args, e.Path)...), nopCloser{}, nil
+}
+
+func setupEnvs(envs packfile.Envs, path string) error {
+	if err := setupEnvDir(envs.Build, filepath.Join(path, "env.build")); err != nil {
+		return err
+	}
+	return setupEnvDir(envs.Launch, filepath.Join(path, "env.launch"))
+}
+
+func setupEnvDir(env []packfile.Env, path string) error {
+	if err := os.Mkdir(path, 0777); err != nil {
+		return err
+	}
+	for _, e := range env {
+		if e.Name == "" {
+			continue
+		}
+		path := filepath.Join(path, e.Name+".override")
+		err := ioutil.WriteFile(path, []byte(e.Value), 0777)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func setupProfile(profiles []packfile.File, path string) error {
+	pad := 1 + int(math.Log10(float64(len(profiles))))
+	profiled := filepath.Join(path, "profile.d")
+	if err := os.Mkdir(profiled, 0777); err != nil {
+		return err
+	}
+	for i, file := range profiles {
+		path := filepath.Join(profiled, fmt.Sprintf("%0*d.sh", pad, i))
+		if file.Inline != "" {
+			err := ioutil.WriteFile(path, []byte(file.Inline), 0777)
+			if err != nil {
+				return err
+			}
+		} else if file.Path != "" {
+			if err := copyFile(path, file.Path); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func copyFile(dst, src string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	fi, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", src)
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 type rmCloser struct{ path string }

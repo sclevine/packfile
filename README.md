@@ -97,3 +97,4 @@ TODO:
 - deps
 - relative paths for profile/execs
 - multi-level metadata
+- go library with metadata abstraction

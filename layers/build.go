@@ -279,6 +279,14 @@ func (l *Build) Run() {
 		l.Err = err
 		return
 	}
+	if err := setupProfile(l.provide().Profile, l.LayerDir); err != nil {
+		l.Err = err
+		return
+	}
+	if err := setupEnvs(l.provide().Env, l.LayerDir); err != nil {
+		l.Err = err
+		return
+	}
 	cmd, c, err := execCmd(&l.provide().Exec, l.Shell)
 	if err != nil {
 		l.Err = err

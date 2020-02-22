@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"os"
 	"path/filepath"
@@ -41,6 +42,13 @@ func main() {
 			log.Fatalf("Error: %s", err)
 		}
 	default:
-		log.Fatal("Error: command name must be build or detect")
+		var out, packfile string
+		flag.StringVar(&out, "o", "", "output path for buildpack tgz")
+		flag.StringVar(&packfile, "f", "", "path to packfile")
+		flag.Parse()
+		if out == "" {
+			log.Fatal("Error: -o must be specified")
+		}
+
 	}
 }

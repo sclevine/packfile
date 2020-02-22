@@ -15,7 +15,7 @@ type Config struct {
 	Version string `toml:"version"`
 	Name    string `toml:"name"`
 	Shell   string `toml:"shell"`
-	Serial  bool   `toml:"serial"`
+	Serial  bool   `toml:"serial"` // TODO
 }
 
 type Process struct {
