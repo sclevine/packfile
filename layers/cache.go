@@ -19,6 +19,7 @@ type Cache struct {
 	Cache  *packfile.Cache
 	Shell  string
 	AppDir string
+	CtxDir string
 }
 
 func (l *Cache) info() linkerInfo {
@@ -93,7 +94,7 @@ func (l *Cache) Run() {
 	if l.Cache.Setup == nil {
 		return
 	}
-	cmd, c, err := execCmd(l.Cache.Setup, l.Shell)
+	cmd, c, err := execCmd(l.Cache.Setup, l.CtxDir, l.Shell)
 	if err != nil {
 		l.Err = err
 		return

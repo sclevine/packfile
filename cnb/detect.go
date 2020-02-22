@@ -18,7 +18,7 @@ type planSections struct {
 	Provides []planProvide    `toml:"provides"`
 }
 
-func Detect(pf *packfile.Packfile, platformDir, planPath string) error {
+func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
 	appDir, err := os.Getwd()
 	if err != nil {
 		return err
@@ -50,6 +50,7 @@ func Detect(pf *packfile.Packfile, platformDir, planPath string) error {
 			Layer:  lp,
 			Shell:  shell,
 			AppDir: appDir,
+			CtxDir: ctxDir,
 		})
 	}
 	syncLayers := layers.LinkLayers(linkLayers)
@@ -71,4 +72,3 @@ func Detect(pf *packfile.Packfile, platformDir, planPath string) error {
 	}
 	return writeTOML(planSections{requires, provides}, planPath)
 }
-

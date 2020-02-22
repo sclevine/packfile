@@ -39,7 +39,7 @@ type buildStore struct {
 	} `toml:"metadata"`
 }
 
-func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error {
+func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath string) error {
 	appDir, err := os.Getwd()
 	if err != nil {
 		return err
@@ -74,6 +74,7 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 			Cache:  cache,
 			Shell:  shell,
 			AppDir: appDir,
+			CtxDir: ctxDir,
 		})
 	}
 	for i := range pf.Layers {
@@ -102,6 +103,7 @@ func Build(pf *packfile.Packfile, layersDir, platformDir, planPath string) error
 			Requires:    plan.get(layer.Name),
 			Shell:       shell,
 			AppDir:      appDir,
+			CtxDir:      ctxDir,
 			BuildID:     store.Metadata.BuildID,
 			LastBuildID: lastBuildID,
 		})

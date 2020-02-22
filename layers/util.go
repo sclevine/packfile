@@ -135,7 +135,7 @@ func copyMap(m map[string]string) map[string]string {
 }
 
 // NOTE: implements UNIX exec-style shebang parsing for shell
-func execCmd(e *packfile.Exec, shell string) (*exec.Cmd, io.Closer, error) {
+func execCmd(e *packfile.Exec, ctxDir, shell string) (*exec.Cmd, io.Closer, error) {
 	if e.Inline != "" && e.Path != "" {
 		return nil, nil, xerrors.New("both inline and path specified")
 	}
@@ -167,7 +167,7 @@ func execCmd(e *packfile.Exec, shell string) (*exec.Cmd, io.Closer, error) {
 		return nil, nil, xerrors.New("missing executable")
 	}
 
-	return exec.Command(shell, append(args, e.Path)...), nopCloser{}, nil
+	return exec.Command(shell, append(args, filepath.Join(ctxDir, e.Path))...), nopCloser{}, nil
 }
 
 func setupEnvs(env []string, envs packfile.Envs, layerDir, appDir string) ([]string, error) {

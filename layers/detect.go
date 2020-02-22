@@ -15,6 +15,7 @@ type Detect struct {
 	Layer  *packfile.Layer
 	Shell  string
 	AppDir string
+	CtxDir string
 }
 
 func (l *Detect) info() linkerInfo {
@@ -51,7 +52,7 @@ func (l *Detect) Run() {
 
 	env := os.Environ()
 	env = append(env, "APP="+l.AppDir, "MD="+l.MetadataDir)
-	cmd, c, err := execCmd(&l.Layer.Require.Exec, l.Shell)
+	cmd, c, err := execCmd(&l.Layer.Require.Exec, l.CtxDir, l.Shell)
 	if err != nil {
 		l.Err = err
 		return

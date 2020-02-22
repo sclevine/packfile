@@ -25,6 +25,7 @@ type Build struct {
 	Requires    []Require
 	Shell       string
 	AppDir      string
+	CtxDir      string
 	BuildID     string
 	LastBuildID string
 	links       []linkInfo
@@ -172,7 +173,7 @@ func (l *Build) Test() (exists, matched bool) {
 		}
 	}
 	if l.provide().Test != nil {
-		cmd, c, err := execCmd(&l.provide().Test.Exec, l.Shell)
+		cmd, c, err := execCmd(&l.provide().Test.Exec, l.CtxDir, l.Shell)
 		if err != nil {
 			l.Err = err
 			return false, false
@@ -288,7 +289,7 @@ func (l *Build) Run() {
 		return
 	}
 
-	cmd, c, err := execCmd(&l.provide().Exec, l.Shell)
+	cmd, c, err := execCmd(&l.provide().Exec, l.CtxDir, l.Shell)
 	if err != nil {
 		l.Err = err
 		return

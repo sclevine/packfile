@@ -19,11 +19,11 @@ func main() {
 	command := os.Args[0]
 
 	var pf packfile.Packfile
-	pfPath := filepath.Join(filepath.Dir(filepath.Dir(command)), "packfile.toml")
-	if _, err := os.Stat(pfPath); os.IsNotExist(err) {
-		pfPath = filepath.Join(".", "packfile.toml")
+	ctxDir := filepath.Dir(filepath.Dir(command))
+	if _, err := os.Stat(filepath.Join(ctxDir, "packfile.toml")); os.IsNotExist(err) {
+		ctxDir = "."
 	}
-	if _, err := toml.DecodeFile(pfPath, &pf); err != nil {
+	if _, err := toml.DecodeFile(filepath.Join(ctxDir, "packfile.toml"), &pf); err != nil {
 		log.Fatalf("Error: %s", err)
 	}
 	switch filepath.Base(command) {
@@ -31,14 +31,14 @@ func main() {
 		if len(os.Args) != 3 {
 			log.Fatal("Error: detect requires two arguments")
 		}
-		if err := cnb.Detect(&pf, os.Args[1], os.Args[2]); err != nil {
+		if err := cnb.Detect(&pf, ctxDir, os.Args[1], os.Args[2]); err != nil {
 			log.Fatalf("Error: %s", err)
 		}
 	case "build":
 		if len(os.Args) != 4 {
 			log.Fatal("Error: build requires three arguments")
 		}
-		if err := cnb.Build(&pf, os.Args[1], os.Args[2], os.Args[3]); err != nil {
+		if err := cnb.Build(&pf, ctxDir, os.Args[1], os.Args[2], os.Args[3]); err != nil {
 			log.Fatalf("Error: %s", err)
 		}
 	default:
