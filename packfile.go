@@ -96,6 +96,8 @@ type Envs struct {
 type Env struct {
 	Name  string `toml:"name"`
 	Value string `toml:"value"`
+	Op    string `toml:"op"`
+	Delim string `toml:"delim"`
 }
 
 type File struct {

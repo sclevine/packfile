@@ -67,11 +67,12 @@ path = "<path to script>"
 
 [[layers.provide.env.launch]]
 name = "<name>"
-value = "<value>"
+value = "<value>" # interpolated with .Layer and .App
+op = "<operation>" # default: override
+delim = "<delimiter>"
 
 [[layers.provide.env.build]]
-name = "<name>"
-value = "<value>"
+# same as [[layers.provide.env.launch]]
 
 [[layers.provide.profile]]
 inline = "<script>"

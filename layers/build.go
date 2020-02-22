@@ -165,7 +165,7 @@ func (l *Build) Test() (exists, matched bool) {
 	}
 	if l.fullEnv() {
 		var err error
-		env, err = setupEnv(env, l.links)
+		env, err = setupLinkEnv(env, l.links)
 		if err != nil {
 			l.Err = err
 			return
@@ -269,13 +269,17 @@ func (l *Build) Run() {
 		}
 	}
 	var err error
-	env, err = setupEnv(env, l.links)
+	env, err = setupLinkEnv(env, l.links)
 	if err != nil {
 		l.Err = err
 		return
 	}
-
 	if err := os.MkdirAll(l.LayerDir, 0777); err != nil {
+		l.Err = err
+		return
+	}
+	env, err = setupEnvs(env, l.provide().Env, l.LayerDir, l.AppDir)
+	if err != nil {
 		l.Err = err
 		return
 	}
@@ -283,10 +287,7 @@ func (l *Build) Run() {
 		l.Err = err
 		return
 	}
-	if err := setupEnvs(l.provide().Env, l.LayerDir); err != nil {
-		l.Err = err
-		return
-	}
+
 	cmd, c, err := execCmd(&l.provide().Exec, l.Shell)
 	if err != nil {
 		l.Err = err
@@ -416,8 +417,8 @@ func readLayerTOML(path string) (layerTOML, error) {
 	return out, nil
 }
 
-func setupEnv(env []string, links []linkInfo) ([]string, error) {
-	lcEnv := &lifecycle.Env{
+func lifecycleEnv(env []string) *lifecycle.Env {
+	return &lifecycle.Env{
 		LookupEnv: func(key string) (string, bool) {
 			for i := range env {
 				kv := strings.SplitN(env[i], "=", 2)
@@ -465,7 +466,10 @@ func setupEnv(env []string, links []linkInfo) ([]string, error) {
 		},
 		Map: lifecycle.POSIXBuildEnv,
 	}
+}
 
+func setupLinkEnv(env []string, links []linkInfo) ([]string, error) {
+	lcEnv := lifecycleEnv(env)
 	for _, link := range links {
 		if err := lcEnv.AddRootDir(link.LayerDir); err != nil {
 			return nil, err

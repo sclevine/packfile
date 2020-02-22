@@ -1,6 +1,7 @@
 package layers
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"text/template"
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
@@ -168,14 +170,25 @@ func execCmd(e *packfile.Exec, shell string) (*exec.Cmd, io.Closer, error) {
 	return exec.Command(shell, append(args, e.Path)...), nopCloser{}, nil
 }
 
-func setupEnvs(envs packfile.Envs, path string) error {
-	if err := setupEnvDir(envs.Build, filepath.Join(path, "env.build")); err != nil {
-		return err
+func setupEnvs(env []string, envs packfile.Envs, layerDir, appDir string) ([]string, error) {
+	envBuild := filepath.Join(layerDir, "env.build")
+	envLaunch := filepath.Join(layerDir, "env.launch")
+	vars := struct {
+		Layer string
+		App   string
+	}{layerDir, appDir}
+
+	if err := setupEnvDir(envs.Build, envBuild, vars); err != nil {
+		return nil, err
 	}
-	return setupEnvDir(envs.Launch, filepath.Join(path, "env.launch"))
+	lcEnv := lifecycleEnv(env)
+	if err := lcEnv.AddEnvDir(envBuild); err != nil {
+		return nil, err
+	}
+	return lcEnv.List(), setupEnvDir(envs.Launch, envLaunch, vars)
 }
 
-func setupEnvDir(env []packfile.Env, path string) error {
+func setupEnvDir(env []packfile.Env, path string, vars interface{}) error {
 	if err := os.Mkdir(path, 0777); err != nil {
 		return err
 	}
@@ -183,13 +196,38 @@ func setupEnvDir(env []packfile.Env, path string) error {
 		if e.Name == "" {
 			continue
 		}
-		path := filepath.Join(path, e.Name+".override")
-		err := ioutil.WriteFile(path, []byte(e.Value), 0777)
+		if e.Op == "" {
+			e.Op = "override"
+		}
+		var err error
+		e.Value, err = interpolate(e.Value, vars)
 		if err != nil {
 			return err
 		}
+		path := filepath.Join(path, e.Name+"."+e.Op)
+		if err := ioutil.WriteFile(path, []byte(e.Value), 0777); err != nil {
+			return err
+		}
+		if e.Delim != "" {
+			path := filepath.Join(path, e.Name+".delim")
+			if err := ioutil.WriteFile(path, []byte(e.Delim), 0777); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+func interpolate(value string, vars interface{}) (string, error) {
+	tmpl, err := template.New("vars").Parse(value)
+	if err != nil {
+		return "", err
+	}
+	out := &bytes.Buffer{}
+	if err := tmpl.Execute(out, vars); err != nil {
+		return "", err
+	}
+	return out.String(), nil
 }
 
 func setupProfile(profiles []packfile.File, path string) error {
