@@ -2,9 +2,33 @@
 
 Reproducible, unprivileged OCI image builds in TOML.
 
-Parallel, offline, and metadata-rich.
-
 Built on top of [Cloud Native Buildpacks](https://buildpacks.io).
+
+**NOTE: Packfile is currently an untested proof-of-concept.**
+
+## Usage
+
+The `pf` binary can be used:
+- To convert a directory containing `packfile.toml` into a buildpack (with `-i`).
+- To create a buildpack that will run `packfile.toml` in an app directory (without `-i`).
+- As a buildpack that runs `packfile.toml` (when symlinked to `bin/build` and `bin/detect`).
+
+## Build
+
+```bash
+go build ./cmd/pf
+```
+
+## Test
+
+```bash
+cd testdata
+./bin/build
+```
+
+- `pf.tgz` can be used to build `app`.
+- `node.tgz` is a Node.js engine buildpack built from `node`.
+- `npm.tgz` is an NPM buildpack built from `npm`.
 
 ## Random Notes
 
@@ -92,9 +116,7 @@ SOLUTION: all build layers must move together, so use UUID in store.toml + build
 Rebuilds on: provide exec change, deps field changes, profile changes, env build/launch changes, link as- changes
 
 TODO:
-- profile
-- env (w/ evaluation?)
 - deps
-- relative paths for profile/execs
 - multi-level metadata
 - go library with metadata abstraction
+- tests
