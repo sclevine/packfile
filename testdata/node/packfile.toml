@@ -1,0 +1,22 @@
+[config]
+id = "sh.scl.node-engine"
+version = "0.0.0"
+name = "Node Engine Packfile"
+
+[[layers]]
+name = "nodejs"
+store = true
+
+[layers.provide.test]
+inline = """
+version=$(cat "$MD/version")
+url=https://semver.io/node/resolve/${version:-*}
+echo v$(wget -q -O - "$url") > "$MD/version"
+"""
+
+[layers.provide]
+inline = """
+version=$(cat "$MD/version")
+node_url=https://nodejs.org/dist/$version/node-$version-linux-x64.tar.xz
+tar -C "$LAYER" -xJf <(wget -q -O - "$node_url") --strip-components=1
+"""

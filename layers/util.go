@@ -244,7 +244,7 @@ func setupProfile(profiles []packfile.File, path string) error {
 				return err
 			}
 		} else if file.Path != "" {
-			if err := copyFile(path, file.Path); err != nil {
+			if err := copyFileContents(path, file.Path); err != nil {
 				return err
 			}
 		}
@@ -252,7 +252,7 @@ func setupProfile(profiles []packfile.File, path string) error {
 	return nil
 }
 
-func copyFile(dst, src string) error {
+func copyFileContents(dst, src string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err

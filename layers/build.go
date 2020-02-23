@@ -366,10 +366,10 @@ func (l *Build) digest() string {
 		writeFile(hash, file.Path)
 	}
 	for _, env := range l.provide().Env.Launch {
-		writeField(hash, env.Name, env.Value)
+		writeField(hash, env.Name, env.Value, env.Op, env.Delim)
 	}
 	for _, env := range l.provide().Env.Build {
-		writeField(hash, env.Name, env.Value)
+		writeField(hash, env.Name, env.Value, env.Op, env.Delim)
 	}
 	for _, link := range l.provide().Links {
 		writeField(hash, link.Name, link.PathEnv, link.VersionEnv, link.MetadataEnv)

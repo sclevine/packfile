@@ -1,0 +1,45 @@
+[config]
+id = "sh.scl.npm"
+version = "0.0.0"
+name = "NPM Packfile"
+
+[[processes]]
+type = "web"
+command = "npm start"
+
+[[caches]]
+name = "npm-cache"
+
+[[layers]]
+name = "nodejs"
+expose = true
+export = true
+
+[layers.require]
+inline = """
+jq -r .engines.node package.json > "$MD/version"
+"""
+
+[[layers]]
+name = "modules"
+export = true
+
+[[layers.build.env.launch]]
+name = "NODE_PATH"
+value = "{{.Layer}}/node_modules"
+
+[layers.build.test]
+inline = """
+sha=$(md5sum package-lock.json | cut -d' ' -f1)
+echo "$sha-$(node -v)" > "$MD/version"
+"""
+
+[layers.build]
+inline = """
+npm ci --unsafe-perm --cache "$NPM_CACHE"
+mv node_modules "$LAYER/"
+"""
+
+[[layers.build.links]]
+name = "npm-cache"
+path-as = "NPM_CACHE"
