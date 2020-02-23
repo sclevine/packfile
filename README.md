@@ -1,10 +1,21 @@
 # packfile
 
-Reproducible, unprivileged OCI image builds in TOML.
+Efficiently builds OCI (Docker) images using declarative TOML.
+
+Packfile:
+- Can be used to build modular [buildpacks](https://buildpacks.io).
+- Builds OCI image layers in parallel.
+- Intelligently determines what layers need to be rebuilt, and only rebuilds those layers.
+- Builds OCI images that are fully reproducible.
+- Builds OCI images with swappable base images (compatible with `pack rebase`, so no containers required).
+- Adds detailed metadata about OCI image contents.
 
 Built on top of [Cloud Native Buildpacks](https://buildpacks.io).
 
 **NOTE: Packfile is currently an untested proof-of-concept.**
+
+## Documentation
+[See here.](./docs)
 
 ## Usage
 
