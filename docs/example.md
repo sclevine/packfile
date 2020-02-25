@@ -24,6 +24,10 @@ jq -r .engines.node package.json > "$MD/version"
 name = "modules"
 export = true
 
+[[layers.build.env.launch]]
+name = "NODE_PATH"
+value = "{{.Layer}}/node_modules"
+
 [layers.build.test]
 inline = """
 sha=$(md5sum package-lock.json | cut -d' ' -f1)
@@ -34,8 +38,6 @@ echo "$sha-$(node -v)" > "$MD/version"
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
 mv node_modules “$LAYER/"
-mkdir "$LAYER/env"
-echo -n "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
 """
 
 [[layers.build.links]]
@@ -113,6 +115,10 @@ name = "npm-cache"
 name = "modules"
 export = true
 
+[[layers.build.env.launch]]
+name = "NODE_PATH"
+value = "{{.Layer}}/node_modules"
+
 [layers.build.test]
 inline = """
 md5sum package-lock.json | cut -d' ' -f1 > "$MD/version"
@@ -122,8 +128,6 @@ md5sum package-lock.json | cut -d' ' -f1 > "$MD/version"
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
 mv node_modules "$LAYER/"
-mkdir "$LAYER/env"
-echo -n "$LAYER/node_modules" > "$LAYER/env/NODE_PATH"
 """
 
 [[layers.build.links]]

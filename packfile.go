@@ -104,3 +104,10 @@ type File struct {
 	Inline string `toml:"inline"`
 	Path   string `toml:"path"`
 }
+
+type ConfigTOML struct {
+	BuildpackDir string `toml:"buildpack-dir"`
+	StoreDir     string `toml:"store-dir"`
+	MetadataDir  string `toml:"metadata-dir"`
+	Deps         []Dep  `toml:"deps"`
+}
