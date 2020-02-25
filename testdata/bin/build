@@ -8,6 +8,6 @@ go build -o pf ../cmd/pf && GOOS=linux go build -o pf.linux ../cmd/pf
 
 ./pf -o pf.tgz -p pf.linux
 ./pf -i node -o node.tgz -p pf.linux
-./pf -i node -o node.tgz -p pf.linux
+./pf -i npm -o npm.tgz -p pf.linux
 
 pack build myapp-3 --buildpack node.tgz --buildpack ./npm/ --builder cloudfoundry/cnb:full -v
