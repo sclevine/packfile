@@ -7,8 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/xerrors"
+
 	"github.com/sclevine/packfile"
 )
+
+var ErrNoKeys = xerrors.New("no  keys")
 
 func NewFS(path string) Store {
 	return fsStore{path}
@@ -18,12 +22,15 @@ type fsStore struct {
 	path string
 }
 
-func (fs fsStore) Read(key string) string {
-	value, err := ioutil.ReadFile(filepath.Join(fs.path, key))
-	if err != nil {
-		return ""
+func (fs fsStore) Read(keys ...string) (string, error) {
+	if len(keys) == 0 {
+		return "", ErrNoKeys
 	}
-	return strings.TrimSuffix(string(value), "\n")
+	value, err := ioutil.ReadFile(filepath.Join(keys...))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(string(value), "\n"), nil
 }
 
 func (fs fsStore) ReadAll() (map[string]string, error) {

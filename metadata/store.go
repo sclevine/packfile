@@ -3,9 +3,9 @@ package metadata
 import "github.com/sclevine/packfile"
 
 type Store interface {
-	Read(key string) string
-	ReadAll() (map[string]string, error)
+	Read(keys ...string) (string, error)
+	ReadAll() (map[string]interface{}, error)
 	DeleteAll() error
-	WriteAll(metadata map[string]string) error
+	WriteAll(metadata map[string]interface{}) error
 	WriteLayer(layer *packfile.Layer) error
 }
