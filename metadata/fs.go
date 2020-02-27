@@ -12,7 +12,7 @@ import (
 	"github.com/sclevine/packfile"
 )
 
-var ErrNoKeys = xerrors.New("no  keys")
+var ErrNoKeys = xerrors.New("no keys")
 
 func NewFS(path string) Store {
 	return fsStore{path}
@@ -36,8 +36,9 @@ func (fs fsStore) Read(keys ...string) (string, error) {
 func (fs fsStore) ReadAll() (map[string]string, error) {
 	metadata := map[string]string{}
 	return metadata, eachFile(fs.path, func(name string) error {
-		metadata[name] = fs.Read(name)
-		return nil
+		var err error
+		metadata[name], err = fs.Read(name)
+		return err
 	})
 }
 
