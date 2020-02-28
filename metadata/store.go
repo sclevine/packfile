@@ -1,5 +1,7 @@
 package metadata
 
+import "golang.org/x/xerrors"
+
 type Store interface {
 	Read(keys ...string) (string, error)
 	ReadAll() (map[string]interface{}, error)
@@ -8,3 +10,8 @@ type Store interface {
 	Write(value string, keys ...string) error
 	WriteAll(metadata map[string]interface{}) error
 }
+
+var (
+	ErrNoKeys   = xerrors.New("no keys")
+	ErrNotValue = xerrors.New("not a value")
+)

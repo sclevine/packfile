@@ -7,12 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/xerrors"
+	"github.com/BurntSushi/toml"
 
 	"github.com/sclevine/packfile"
 )
 
-var ErrNoKeys = xerrors.New("no keys")
 
 func NewFS(path string) Store {
 	return fsStore{path}
@@ -43,6 +42,9 @@ func (fs fsStore) ReadAll() (map[string]interface{}, error) {
 }
 
 func (fs fsStore) Delete(keys ...string) error {
+	if len(keys) == 0 {
+		return ErrNoKeys
+	}
 	return os.RemoveAll(fs.keyPath(keys...))
 }
 
@@ -60,6 +62,9 @@ func (fs fsStore) DeleteAll() error {
 }
 
 func (fs fsStore) Write(value string, keys ...string) error {
+	if len(keys) == 0 {
+		return ErrNoKeys
+	}
 	if err := fs.Delete(keys...); err != nil {
 		return err
 	}
@@ -69,12 +74,6 @@ func (fs fsStore) Write(value string, keys ...string) error {
 func (fs fsStore) keyPath(keys ...string) string {
 	return filepath.Join(append([]string{fs.path}, keys...)...)
 }
-
-//func (fs fsStore) WriteAll(metadata map[string]interface{}) error {
-//	return eachKey(metadata, fs.path, func(name, value, dir string) error {
-//		return ioutil.WriteFile(filepath.Join(dir, name), []byte(value), 0666)
-//	})
-//}
 
 func (fs fsStore) WriteAll(metadata map[string]interface{}) error {
 	return eachKey(metadata, nil, func(value string, keys ...string) error {
@@ -91,26 +90,6 @@ func writeLayer(fs fsStore, layer *packfile.Layer) error {
 		"launch":  fmt.Sprintf("%t", layer.Export),
 		"build":   fmt.Sprintf("%t", layer.Expose),
 	})
-}
-
-//func copyStringMap(m map[string]string) map[string]string {
-//	out := map[string]string{}
-//	for k, v := range m {
-//		out[k] = v
-//	}
-//	return out
-//}
-
-func copyMap(m map[string]interface{}) map[string]interface{} {
-	out := map[string]interface{}{}
-	for k, v := range m {
-		if vm, ok := v.(map[string]interface{}); ok {
-			out[k] = copyMap(vm)
-		} else {
-			out[k] = v
-		}
-	}
-	return out
 }
 
 func eachFile(dir string, m map[string]interface{}, fn func(name string, m map[string]interface{}) error) error {
@@ -131,26 +110,41 @@ func eachFile(dir string, m map[string]interface{}, fn func(name string, m map[s
 	return nil
 }
 
-//func eachKey(m map[string]interface{}, dir string, fn func(k, v, dir string) error) error {
-//	for k, v := range m {
-//		switch v := v.(type) {
-//		case string:
-//			return fn(k, v, dir)
-//		case map[string]interface{}:
-//			return eachKey(v, filepath.Join(dir, k), fn)
-//		}
-//	}
-//	return nil
-//}
-
 func eachKey(m map[string]interface{}, start []string, fn func(v string, keys ...string) error) error {
 	for k, v := range m {
 		switch v := v.(type) {
-		case string:
-			return fn(v, append(start, k)...)
 		case map[string]interface{}:
 			return eachKey(v, append(start, k), fn)
+		default:
+			s, err := primToString(v)
+			if err != nil {
+				return err
+			}
+			return fn(s, append(start, k)...)
 		}
 	}
 	return nil
+}
+
+func primToString(v interface{}) (string, error) {
+	switch v := v.(type) {
+	case toml.TextMarshaler:
+		text, err := v.MarshalText()
+		if err != nil {
+			return "", err
+		}
+		return string(text), nil
+	case fmt.Stringer:
+		return v.String(), nil
+	case string:
+		return v, nil
+	case bool:
+		return fmt.Sprintf("%v", v), nil
+	case int64:
+		return fmt.Sprintf("%d", v), nil
+	case float64:
+		return fmt.Sprintf("%f", v), nil
+	default:
+		return "", ErrNotValue
+	}
 }
