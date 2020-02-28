@@ -35,15 +35,15 @@ type Cache struct {
 }
 
 type Layer struct {
-	Name     string            `toml:"name"`
-	Export   bool              `toml:"export"`
-	Expose   bool              `toml:"expose"`
-	Store    bool              `toml:"store"`
-	Version  string            `toml:"version"`
-	Metadata map[string]string `toml:"metadata"`
-	Require  *Require          `toml:"require"`
-	Provide  *Provide          `toml:"provide"`
-	Build    *Provide          `toml:"build"`
+	Name     string                 `toml:"name"`
+	Export   bool                   `toml:"export"`
+	Expose   bool                   `toml:"expose"`
+	Store    bool                   `toml:"store"`
+	Version  string                 `toml:"version"`
+	Metadata map[string]interface{} `toml:"metadata"`
+	Require  *Require               `toml:"require"`
+	Provide  *Provide               `toml:"provide"`
+	Build    *Provide               `toml:"build"`
 }
 
 type Require struct {
