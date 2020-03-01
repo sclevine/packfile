@@ -2,6 +2,7 @@ package layers
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
+	"github.com/sclevine/packfile/metadata"
 	"github.com/sclevine/packfile/sync"
 )
 
@@ -40,9 +42,9 @@ type linker interface {
 }
 
 type LinkShare struct {
-	LayerDir    string
-	MetadataDir string
-	Err         error
+	LayerDir string
+	Metadata metadata.Store
+	Err      error
 }
 
 type linkInfo struct {
@@ -83,55 +85,15 @@ func IsError(err error) bool {
 	return false
 }
 
-func readMetadata(path, key string) string {
-	value, err := ioutil.ReadFile(filepath.Join(path, key))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSuffix(string(value), "\n")
-}
-
-func readAllMetadata(path string) (map[string]string, error) {
-	metadata := map[string]string{}
-	return metadata, eachFile(path, func(name string) error {
-		metadata[name] = readMetadata(path, name)
-		return nil
-	})
-}
-
-func deleteAllMetadata(path string) error {
-	return eachFile(path, func(name string) error {
-		return os.Remove(filepath.Join(path, name))
-	})
-}
-
-func writeAllMetadata(path string, metadata map[string]string) error {
-	for k, v := range metadata {
-		if err := ioutil.WriteFile(filepath.Join(path, k), []byte(v), 0666); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func writeLayerMetadata(path string, layer *packfile.Layer) error {
-	md := copyMap(layer.Metadata)
-	md["version"] = layer.Version
-	if err := writeAllMetadata(path, md); err != nil {
+func writeLayerMetadata(store metadata.Store, layer *packfile.Layer) error {
+	if err := store.WriteAll(layer.Metadata); err != nil {
 		return err
 	}
-	return writeAllMetadata(path, map[string]string{
-		"launch": fmt.Sprintf("%t", layer.Export),
-		"build":  fmt.Sprintf("%t", layer.Expose),
+	return store.WriteAll(map[string]interface{}{
+		"version": layer.Version,
+		"launch":  fmt.Sprintf("%t", layer.Export),
+		"build":   fmt.Sprintf("%t", layer.Expose),
 	})
-}
-
-func copyMap(m map[string]string) map[string]string {
-	out := map[string]string{}
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
 }
 
 // NOTE: implements UNIX exec-style shebang parsing for shell
@@ -308,9 +270,9 @@ func toLinkers(layers []LinkLayer) []linker {
 }
 
 type Require struct {
-	Name     string            `toml:"name"`
-	Version  string            `toml:"version"`
-	Metadata map[string]string `toml:"metadata"` // TODO: fails to accept all metadata at build
+	Name     string                 `toml:"name"`
+	Version  string                 `toml:"version"`
+	Metadata map[string]interface{} `toml:"metadata"`
 }
 
 func ReadRequires(layers []LinkLayer) ([]Require, error) {
@@ -322,10 +284,10 @@ func ReadRequires(layers []LinkLayer) ([]Require, error) {
 		} else if info.share.Err != nil {
 			return nil, xerrors.Errorf("error for layer '%s': %w", info.name, info.share.Err)
 		}
-		if info.share.MetadataDir == "" {
+		if info.share.Metadata == nil {
 			continue
 		}
-		req, err := readRequire(info.name, info.share.MetadataDir)
+		req, err := readRequire(info.name, info.share.Metadata)
 		if err != nil {
 			return nil, xerrors.Errorf("invalid metadata for layer '%s': %w", info.name, err)
 		}
@@ -334,37 +296,17 @@ func ReadRequires(layers []LinkLayer) ([]Require, error) {
 	return requires, nil
 }
 
-func eachFile(dir string, fn func(name string) error) error {
-	files, err := ioutil.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	for _, f := range files {
-		if f.IsDir() {
-			continue
-		}
-		if err := fn(f.Name()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func readRequire(name, path string) (Require, error) {
-	out := Require{
-		Name:     name,
-		Metadata: map[string]string{},
-	}
-	if err := eachFile(path, func(name string) error {
-		if value := readMetadata(path, name); name == "version" {
-			out.Version = value
-		} else {
-			out.Metadata[name] = value
-		}
-		return nil
-	}); err != nil {
+func readRequire(name string, metadata metadata.Store) (Require, error) {
+	out := Require{Name: name}
+	var err error
+	if out.Metadata, err = metadata.ReadAll(); err != nil {
 		return Require{}, err
 	}
+	var ok bool
+	if out.Version, ok = out.Metadata["version"].(string); !ok {
+		return Require{}, errors.New("version must be a string")
+	}
+	delete(out.Metadata, "version")
 	return out, nil
 }
 

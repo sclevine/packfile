@@ -6,6 +6,7 @@ import (
 
 	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/layers"
+	"github.com/sclevine/packfile/metadata"
 	"github.com/sclevine/packfile/sync"
 )
 
@@ -45,7 +46,7 @@ func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
 		linkLayers = append(linkLayers, &layers.Detect{
 			Streamer: sync.NewStreamer(),
 			LinkShare: layers.LinkShare{
-				MetadataDir: mdDir,
+				Metadata: metadata.NewFS(mdDir),
 			},
 			Layer:  lp,
 			Shell:  shell,

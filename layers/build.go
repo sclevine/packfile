@@ -15,6 +15,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
+	"github.com/sclevine/packfile/metadata"
 	"github.com/sclevine/packfile/sync"
 )
 
@@ -115,12 +116,31 @@ func (l *Build) layerTOML() string {
 	return l.LayerDir + ".toml"
 }
 
-func mergeRequire(path string, req Require) error {
-	md := copyMap(req.Metadata)
-	md["launch"] = mergeBoolStrings(md["launch"], readMetadata(path, "launch"))
-	md["build"] = mergeBoolStrings(md["build"], readMetadata(path, "build"))
-	md["version"] = req.Version
-	return writeAllMetadata(path, md)
+func mergeRequire(store metadata.Store, req Require) error {
+	prevLaunch, err := store.Read("launch")
+	if err != nil {
+		prevLaunch = "false"
+	}
+	prevBuild, err := store.Read("build")
+	if err != nil {
+		prevBuild = "false"
+	}
+	if err := store.WriteAll(req.Metadata); err != nil {
+		return err
+	}
+	nextLaunch, err := store.Read("launch")
+	if err != nil {
+		nextLaunch = "false"
+	}
+	nextBuild, err := store.Read("build")
+	if err != nil {
+		nextBuild = "false"
+	}
+	return store.WriteAll(map[string]interface{}{
+		"version": req.Version,
+		"launch":  mergeBoolStrings(nextLaunch, prevLaunch),
+		"build":   mergeBoolStrings(nextBuild, prevBuild),
+	})
 }
 
 func mergeBoolStrings(s1, s2 string) string {
@@ -129,20 +149,20 @@ func mergeBoolStrings(s1, s2 string) string {
 
 func (l *Build) Test() (exists, matched bool) {
 	if l.Layer.Require == nil {
-		if err := writeLayerMetadata(l.MetadataDir, l.Layer); err != nil {
+		if err := writeLayerMetadata(l.Metadata, l.Layer); err != nil {
 			l.Err = err
 			return false, false
 		}
 	}
 	for _, req := range l.Requires {
-		if err := mergeRequire(l.MetadataDir, req); err != nil {
+		if err := mergeRequire(l.Metadata, req); err != nil {
 			l.Err = err
 			return false, false
 		}
 	}
 
 	env := os.Environ()
-	env = append(env, "APP="+l.AppDir, "MD="+l.MetadataDir)
+	env = append(env, "APP="+l.AppDir, "MD="+l.Metadata.Dir())
 
 	for _, link := range l.links {
 		if link.Err != nil {
@@ -161,7 +181,7 @@ func (l *Build) Test() (exists, matched bool) {
 			env = append(env, link.VersionEnv+"="+lt.Metadata.Version)
 		}
 		if link.MetadataEnv != "" {
-			env = append(env, link.MetadataEnv+"="+link.MetadataDir)
+			env = append(env, link.MetadataEnv+"="+link.Metadata.Dir())
 		}
 	}
 	if l.fullEnv() {
@@ -201,15 +221,18 @@ func (l *Build) Test() (exists, matched bool) {
 		return false, false
 	}
 	layerTOML.Cache = l.Layer.Store
-	layerTOML.Build = readMetadata(l.MetadataDir, "build") == "true"
-	layerTOML.Launch = readMetadata(l.MetadataDir, "launch") == "true"
+	layerTOML.Build = mdToBool(l.Metadata.Read("build"))
+	layerTOML.Launch = mdToBool(l.Metadata.Read("launch"))
 
 	// TODO: use cached build ID when store.toml is implemented in lifecycle
 	cachedBuildID := l.LastBuildID // layerTOML.Metadata.BuildID
 	layerTOML.Metadata.BuildID = l.BuildID
 
 	oldVersion := layerTOML.Metadata.Version
-	newVersion := readMetadata(l.MetadataDir, "version")
+	newVersion, err := l.Metadata.Read("version")
+	if err != nil {
+		newVersion = ""
+	}
 	layerTOML.Metadata.Version = newVersion
 
 	oldDigest := layerTOML.Metadata.CodeDigest
@@ -236,18 +259,23 @@ func (l *Build) Test() (exists, matched bool) {
 	return false, false
 }
 
+func mdToBool(s string, err error) bool {
+	return err == nil && s == "true"
+}
+
 func (l *Build) Run() {
 	if l.Err != nil {
 		return
 	}
-	w, _ := l.Streamer.Writers()
-	fmt.Fprintf(w, "Building layer %s.\n", l.Layer.Name)
+	w, _ := l.Writers()
+	fmt.Fprintf(w, "Building layer '%s'...\n", l.Layer.Name)
 	if err := os.RemoveAll(l.LayerDir); err != nil {
 		l.Err = err
 		return
 	}
+
 	env := os.Environ()
-	env = append(env, "APP="+l.AppDir, "MD="+l.MetadataDir, "LAYER="+l.LayerDir)
+	env = append(env, "APP="+l.AppDir, "MD="+l.Metadata.Dir(), "LAYER="+l.LayerDir)
 
 	for _, link := range l.links {
 		if link.Err != nil {
@@ -266,7 +294,7 @@ func (l *Build) Run() {
 			env = append(env, link.VersionEnv+"="+lt.Metadata.Version)
 		}
 		if link.MetadataEnv != "" {
-			env = append(env, link.MetadataEnv+"="+link.MetadataDir)
+			env = append(env, link.MetadataEnv+"="+link.Metadata.Dir())
 		}
 	}
 	var err error
@@ -315,13 +343,19 @@ func (l *Build) Run() {
 		l.Err = err
 		return
 	}
-	layerTOML.Metadata.Saved, err = readAllMetadata(l.MetadataDir)
-	delete(layerTOML.Metadata.Saved, "launch")
-	delete(layerTOML.Metadata.Saved, "build")
+	metadata, err := l.Metadata.ReadAll()
 	if err != nil {
 		l.Err = err
 		return
 	}
+	versionStr := "."
+	if v, ok := metadata["version"].(string); ok {
+		versionStr = " with version: " + v
+	}
+	fmt.Fprintf(w, "Built layer '%s'%s\n", l.Layer.Name, versionStr)
+	delete(metadata, "launch")
+	delete(metadata, "build")
+	layerTOML.Metadata.Saved = metadata
 	l.Err = writeTOML(layerTOML, layerTOMLPath)
 }
 
@@ -330,7 +364,7 @@ func (l *Build) Skip() {
 		return
 	}
 	w, _ := l.Streamer.Writers()
-	fmt.Fprintf(w, "Skipping layer %s.\n", l.Layer.Name)
+	fmt.Fprintf(w, "Skipping layer '%s'.\n", l.Layer.Name)
 
 	layerTOMLPath := l.LayerDir + ".toml"
 	layerTOML, err := readLayerTOML(layerTOMLPath)
@@ -338,18 +372,18 @@ func (l *Build) Skip() {
 		l.Err = err
 		return
 	}
-	if err := deleteAllMetadata(l.MetadataDir); err != nil {
+	if err := l.Metadata.DeleteAll(); err != nil {
 		l.Err = err
 		return
 	}
-	saved := copyMap(layerTOML.Metadata.Saved)
+	saved := layerTOML.Metadata.Saved
 	if layerTOML.Launch {
 		saved["launch"] = "true"
 	}
 	if layerTOML.Build {
 		saved["build"] = "true"
 	}
-	l.Err = writeAllMetadata(l.MetadataDir, saved)
+	l.Err = l.Metadata.WriteAll(saved)
 }
 
 func (l *Build) digest() string {
@@ -400,10 +434,10 @@ type layerTOML struct {
 	Build    bool `toml:"build"`
 	Cache    bool `toml:"cache"`
 	Metadata struct {
-		Version    string            `toml:"version,omitempty"`
-		BuildID    string            `toml:"build-id,omitempty"`
-		CodeDigest string            `toml:"code-digest"`
-		Saved      map[string]string `toml:"saved,omitempty"` // TODO: fails to accept all metadata at build
+		Version    string                 `toml:"version,omitempty"`
+		BuildID    string                 `toml:"build-id,omitempty"`
+		CodeDigest string                 `toml:"code-digest"`
+		Saved      map[string]interface{} `toml:"saved,omitempty"`
 	} `toml:"metadata"`
 }
 

@@ -131,3 +131,7 @@ TODO:
 - multi-level metadata
 - go library with metadata abstraction
 - tests
+
+BUGS:
+Race: [detector] 2020/03/01 04:34:08 Error: invalid metadata for layer 'modules': version must be a string
+Order: Building layer 'modules'.

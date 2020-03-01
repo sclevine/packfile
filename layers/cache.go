@@ -78,7 +78,7 @@ func (l *Cache) Run() {
 		return
 	}
 	w, _ := l.Streamer.Writers()
-	fmt.Fprintf(w, "Setting up cache %s.\n", l.Cache.Name)
+	fmt.Fprintf(w, "Setting up cache '%s'.\n", l.Cache.Name)
 	if err := os.RemoveAll(l.LayerDir); err != nil {
 		l.Err = err
 		return

@@ -24,20 +24,6 @@ func (ms memStore) Read(keys ...string) (string, error) {
 	}
 }
 
-func (ms memStore) getMap(keys []string) (map[string]interface{}, error) {
-	m := ms.m
-	for _, key := range keys {
-		switch t := m[key].(type) {
-		case map[string]interface{}:
-			m = t
-		default:
-			return nil, ErrNotValue
-		}
-	}
-	return m, nil
-}
-
-
 func (ms memStore) ReadAll() (map[string]interface{}, error) {
 	return copyMap(ms.m), nil
 }
@@ -60,7 +46,7 @@ func (ms memStore) Delete(keys ...string) error {
 	}
 	m, err := ms.getMap(keys[:len(keys)-1])
 	if err != nil {
-		return err
+		return nil
 	}
 	delete(m, keys[len(keys)-1])
 	return nil
@@ -75,7 +61,7 @@ func (ms memStore) Write(value string, keys ...string) error {
 	if len(keys) == 0 {
 		return ErrNoKeys
 	}
-	m, err := ms.getMap(keys[:len(keys)-1])
+	m, err := ms.createMap(keys[:len(keys)-1])
 	if err != nil {
 		return err
 	}
@@ -84,6 +70,57 @@ func (ms memStore) Write(value string, keys ...string) error {
 }
 
 func (ms memStore) WriteAll(metadata map[string]interface{}) error {
-	ms.m = copyMap(metadata)
+	mergeMap(ms.m, metadata)
 	return nil
+}
+
+// FIXME: double-check logic here
+func mergeMap(to, from map[string]interface{}) {
+	for k, v := range from {
+		if vfrom, ok := v.(map[string]interface{}); ok {
+			if vto, ok := to[k].(map[string]interface{}); ok {
+				mergeMap(vto, vfrom)
+			} else {
+				vto := map[string]interface{}{}
+				to[k] = vto
+				mergeMap(vto, vfrom)
+			}
+		} else {
+			to[k] = v
+		}
+	}
+}
+
+func (memStore) Dir() string {
+	panic("metadata is in-memory-only")
+}
+
+func (ms memStore) getMap(keys []string) (map[string]interface{}, error) {
+	m := ms.m
+	for _, key := range keys {
+		switch t := m[key].(type) {
+		case map[string]interface{}:
+			m = t
+		default:
+			return nil, ErrNotValue
+		}
+	}
+	return m, nil
+}
+
+func (ms memStore) createMap(keys []string) (map[string]interface{}, error) {
+	m := ms.m
+	for _, key := range keys {
+		switch t := m[key].(type) {
+		case map[string]interface{}:
+			m = t
+		case nil:
+			mt := map[string]interface{}{}
+			m[key] = mt
+			m = mt
+		default:
+			return nil, ErrNotKey
+		}
+	}
+	return m, nil
 }

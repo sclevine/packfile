@@ -42,7 +42,7 @@ func (l *Detect) Test() (exists, matched bool) {
 }
 
 func (l *Detect) Run() {
-	if err := writeLayerMetadata(l.MetadataDir, l.Layer); err != nil {
+	if err := writeLayerMetadata(l.Metadata, l.Layer); err != nil {
 		l.Err = err
 		return
 	}
@@ -51,7 +51,7 @@ func (l *Detect) Run() {
 	}
 
 	env := os.Environ()
-	env = append(env, "APP="+l.AppDir, "MD="+l.MetadataDir)
+	env = append(env, "APP="+l.AppDir, "MD="+l.Metadata.Dir())
 	cmd, c, err := execCmd(&l.Layer.Require.Exec, l.CtxDir, l.Shell)
 	if err != nil {
 		l.Err = err

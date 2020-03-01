@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-
-	"github.com/sclevine/packfile"
 )
 
 
@@ -25,7 +23,7 @@ func (fs fsStore) Read(keys ...string) (string, error) {
 	if len(keys) == 0 {
 		return "", ErrNoKeys
 	}
-	value, err := ioutil.ReadFile(filepath.Join(keys...))
+	value, err := ioutil.ReadFile(fs.keyPath(keys...))
 	if err != nil {
 		return "", err
 	}
@@ -34,9 +32,9 @@ func (fs fsStore) Read(keys ...string) (string, error) {
 
 func (fs fsStore) ReadAll() (map[string]interface{}, error) {
 	metadata := map[string]interface{}{}
-	return metadata, eachFile(fs.path, metadata, func(name string, m map[string]interface{}) error {
+	return metadata, fs.eachFile(metadata, nil, func(m map[string]interface{}, keys ...string) error {
 		var err error
-		m[name], err = fs.Read(name)
+		m[keys[len(keys)-1]], err = fs.Read(keys...)
 		return err
 	})
 }
@@ -66,7 +64,12 @@ func (fs fsStore) Write(value string, keys ...string) error {
 		return ErrNoKeys
 	}
 	if err := fs.Delete(keys...); err != nil {
-		return err
+		return ErrNotKey
+	}
+	if len(keys) > 1 {
+		if err := os.MkdirAll(filepath.Dir(fs.keyPath(keys...)), 0777); err != nil {
+			return err
+		}
 	}
 	return ioutil.WriteFile(fs.keyPath(keys...), []byte(value), 0666)
 }
@@ -81,19 +84,12 @@ func (fs fsStore) WriteAll(metadata map[string]interface{}) error {
 	})
 }
 
-func writeLayer(fs fsStore, layer *packfile.Layer) error {
-	if err := fs.WriteAll(layer.Metadata); err != nil {
-		return err
-	}
-	return fs.WriteAll(map[string]interface{}{
-		"version": layer.Version,
-		"launch":  fmt.Sprintf("%t", layer.Export),
-		"build":   fmt.Sprintf("%t", layer.Expose),
-	})
+func (fs fsStore) Dir() string {
+	return fs.path
 }
 
-func eachFile(dir string, m map[string]interface{}, fn func(name string, m map[string]interface{}) error) error {
-	files, err := ioutil.ReadDir(dir)
+func (fs fsStore) eachFile(m map[string]interface{}, start []string, fn func(m map[string]interface{}, keys ...string) error) error {
+	files, err := ioutil.ReadDir(fs.keyPath(start...))
 	if err != nil {
 		return err
 	}
@@ -101,9 +97,9 @@ func eachFile(dir string, m map[string]interface{}, fn func(name string, m map[s
 		if f.IsDir() {
 			n := map[string]interface{}{}
 			m[f.Name()] = n
-			return eachFile(filepath.Join(dir, f.Name()), n, fn)
+			return fs.eachFile(n, append(start, f.Name()), fn)
 		}
-		if err := fn(f.Name(), m); err != nil {
+		if err := fn(m, append(start, f.Name())...); err != nil {
 			return err
 		}
 	}
@@ -144,6 +140,8 @@ func primToString(v interface{}) (string, error) {
 		return fmt.Sprintf("%d", v), nil
 	case float64:
 		return fmt.Sprintf("%f", v), nil
+	case nil:
+		return "", ErrNotExist
 	default:
 		return "", ErrNotValue
 	}

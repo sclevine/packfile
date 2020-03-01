@@ -1,6 +1,7 @@
 package cnb
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/layers"
+	"github.com/sclevine/packfile/metadata"
 	"github.com/sclevine/packfile/sync"
 )
 
@@ -40,6 +42,12 @@ type buildStore struct {
 }
 
 func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath string) error {
+	var name string
+	if n := pf.Config.Name; n != "" {
+		name = " - " + n
+	}
+	fmt.Printf("Executing buildpack: %s@%s%s\n", pf.Config.ID, pf.Config.Version, name)
+
 	appDir, err := os.Getwd()
 	if err != nil {
 		return err
@@ -96,8 +104,8 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 		linkLayers = append(linkLayers, &layers.Build{
 			Streamer: sync.NewStreamer(),
 			LinkShare: layers.LinkShare{
-				MetadataDir: mdDir,
-				LayerDir:    layerDir,
+				Metadata: metadata.NewFS(mdDir),
+				LayerDir: layerDir,
 			},
 			Layer:       layer,
 			Requires:    plan.get(layer.Name),
