@@ -89,11 +89,17 @@ func writeLayerMetadata(store metadata.Store, layer *packfile.Layer) error {
 	if err := store.WriteAll(layer.Metadata); err != nil {
 		return err
 	}
-	return store.WriteAll(map[string]interface{}{
-		"version": layer.Version,
-		"launch":  fmt.Sprintf("%t", layer.Export),
-		"build":   fmt.Sprintf("%t", layer.Expose),
-	})
+	others := map[string]interface{}{}
+	if layer.Version != "" {
+		others["version"] = layer.Version
+	}
+	if layer.Export {
+		others["launch"] = "true"
+	}
+	if layer.Expose {
+		others["build"] = "true"
+	}
+	return store.WriteAll(others)
 }
 
 // NOTE: implements UNIX exec-style shebang parsing for shell
@@ -302,9 +308,10 @@ func readRequire(name string, metadata metadata.Store) (Require, error) {
 	if out.Metadata, err = metadata.ReadAll(); err != nil {
 		return Require{}, err
 	}
-	var ok bool
-	if out.Version, ok = out.Metadata["version"].(string); !ok {
-		return Require{}, errors.New("version must be a string")
+	if v, ok := out.Metadata["version"]; ok {
+		if out.Version, ok = v.(string); !ok {
+			return Require{}, errors.New("version must be a string")
+		}
 	}
 	delete(out.Metadata, "version")
 	return out, nil

@@ -97,7 +97,9 @@ func (fs fsStore) eachFile(m map[string]interface{}, start []string, fn func(m m
 		if f.IsDir() {
 			n := map[string]interface{}{}
 			m[f.Name()] = n
-			return fs.eachFile(n, append(start, f.Name()), fn)
+			if err := fs.eachFile(n, append(start, f.Name()), fn); err != nil {
+				return err
+			}
 		}
 		if err := fn(m, append(start, f.Name())...); err != nil {
 			return err
@@ -110,13 +112,17 @@ func eachKey(m map[string]interface{}, start []string, fn func(v string, keys ..
 	for k, v := range m {
 		switch v := v.(type) {
 		case map[string]interface{}:
-			return eachKey(v, append(start, k), fn)
+			if err := eachKey(v, append(start, k), fn); err != nil {
+				return err
+			}
 		default:
 			s, err := primToString(v)
 			if err != nil {
 				return err
 			}
-			return fn(s, append(start, k)...)
+			if err := fn(s, append(start, k)...); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -135,7 +141,7 @@ func primToString(v interface{}) (string, error) {
 	case string:
 		return v, nil
 	case bool:
-		return fmt.Sprintf("%v", v), nil
+		return fmt.Sprintf("%t", v), nil
 	case int64:
 		return fmt.Sprintf("%d", v), nil
 	case float64:

@@ -125,6 +125,9 @@ func mergeRequire(store metadata.Store, req Require) error {
 	if err != nil {
 		prevBuild = "false"
 	}
+	if err := store.DeleteAll(); err != nil {
+		return err
+	}
 	if err := store.WriteAll(req.Metadata); err != nil {
 		return err
 	}
@@ -136,15 +139,21 @@ func mergeRequire(store metadata.Store, req Require) error {
 	if err != nil {
 		nextBuild = "false"
 	}
-	return store.WriteAll(map[string]interface{}{
-		"version": req.Version,
-		"launch":  mergeBoolStrings(nextLaunch, prevLaunch),
-		"build":   mergeBoolStrings(nextBuild, prevBuild),
-	})
+	others := map[string]interface{}{}
+	if req.Version != "" {
+		others["version"] = req.Version
+	}
+	if mergeBoolStrings(nextLaunch, prevLaunch) {
+		others["launch"] = "true"
+	}
+	if mergeBoolStrings(nextBuild, prevBuild) {
+		others["build"] = "true"
+	}
+	return store.WriteAll(others)
 }
 
-func mergeBoolStrings(s1, s2 string) string {
-	return fmt.Sprintf("%t", s1 == "true" || s2 == "true")
+func mergeBoolStrings(s1, s2 string) bool {
+	return s1 == "true" || s2 == "true"
 }
 
 func (l *Build) Test() (exists, matched bool) {
