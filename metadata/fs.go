@@ -100,9 +100,10 @@ func (fs fsStore) eachFile(m map[string]interface{}, start []string, fn func(m m
 			if err := fs.eachFile(n, append(start, f.Name()), fn); err != nil {
 				return err
 			}
-		}
-		if err := fn(m, append(start, f.Name())...); err != nil {
-			return err
+		} else {
+			if err := fn(m, append(start, f.Name())...); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

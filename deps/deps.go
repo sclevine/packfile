@@ -12,10 +12,12 @@ import (
 	"strings"
 
 	"github.com/dustin/go-humanize"
+	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/metadata"
+	"github.com/sclevine/packfile/sync"
 )
 
 func Get(config *packfile.ConfigTOML, name, version string) (path string, err error) {
@@ -69,20 +71,29 @@ type writeCounter struct {
 	n, len int64
 	name   string
 	hash   hash.Hash
+	term   bool
 }
 
 func (w *writeCounter) Write(p []byte) (int, error) {
-	w.n += int64(len(p))
-	if n, err := w.hash.Write(p); err != nil {
-		return n, err
+	n, err := w.hash.Write(p)
+	w.n += int64(n)
+	if w.term {
+		fmt.Fprintf(os.Stderr, "\r%s", strings.Repeat(" ", 50))
+		size := "unknown"
+		if w.len >= 0 {
+			size = humanize.Bytes(uint64(w.len))
+		}
+		fmt.Fprintf(os.Stderr, "\rDownloading %s: %s / %s", w.name, humanize.Bytes(uint64(w.n)), size)
 	}
-	fmt.Fprintf(os.Stderr, "\r%s", strings.Repeat(" ", 50))
-	size := "unknown"
-	if w.len >= 0 {
-		size = humanize.Bytes(uint64(w.len))
+	return n, err
+}
+
+func (w *writeCounter) Flush() {
+	if w.term {
+		fmt.Fprintln(os.Stderr)
+	} else {
+		fmt.Fprintf(os.Stderr, "Downloaded %s (%s)\n", w.name, humanize.Bytes(uint64(w.n)))
 	}
-	fmt.Fprintf(os.Stderr, "\rDownloading %s: %s / %s", w.name, humanize.Bytes(uint64(w.n)), size)
-	return len(p), nil
 }
 
 func download(uri, filepath string) (sha string, err error) {
@@ -102,11 +113,16 @@ func download(uri, filepath string) (sha string, err error) {
 		len:  resp.ContentLength,
 		name: path.Base(filepath),
 		hash: sha256.New(),
+		term: terminal.IsTerminal(int(os.Stderr.Fd())),
 	}
-	if _, err := io.Copy(out, io.TeeReader(resp.Body, counter)); err != nil {
+	tee := sync.NewPTeeReader(resp.Body, counter)
+	if _, err := io.Copy(out, tee); err != nil {
 		return "", err
 	}
-	fmt.Fprintln(os.Stderr)
+	if _, err := tee.Sync(); err != nil {
+		return "", err
+	}
+	counter.Flush()
 	return fmt.Sprintf("%x", counter.hash.Sum(nil)), out.Close()
 }
 

@@ -21,6 +21,5 @@ uri = "https://nodejs.org/dist/{{.version}}/node-{{.version}}-linux-x64.tar.xz"
 
 [layers.provide]
 inline = """
-cat $PF_CONFIG_PATH
 tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 """
