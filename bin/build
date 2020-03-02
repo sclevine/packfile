@@ -8,9 +8,9 @@ rm -rf out statik testout
 mkdir out testout
 
 echo "Building pf CLI..."
-GOOS=linux go build -o out/pf.linux ./cmd/pf
+CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" -o out/pf.linux ./cmd/pf
 statik -src=./out -include=pf.linux -tags '!linux'
-go build -o out/pf ./cmd/pf
+CGO_ENABLED=0 go build -ldflags "-s -w" -o out/pf ./cmd/pf
 
 echo "Building pf buildpack..."
 out/pf -o out/pf.tgz

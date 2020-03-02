@@ -28,15 +28,17 @@ The `pf` binary can be used:
 ## Build
 
 ```bash
+./bin/tools
 ./bin/build
 ```
+
+Buildpacks:
+- `out/pf.tgz` can be used to build `testdata/app`.
+- `testout/node.tgz` is a Node.js engine buildpack built from `testdata/node`.
+- `testout/npm.tgz` is an NPM buildpack built from `testdata/npm`.
 
 ## Test
 
 ```bash
 ./bin/test
 ```
-
-- `pf.tgz` can be used to build `app`.
-- `node.tgz` is a Node.js engine buildpack built from `node`.
-- `npm.tgz` is an NPM buildpack built from `npm`.

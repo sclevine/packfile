@@ -15,7 +15,7 @@ import (
 	"text/template"
 
 	"github.com/BurntSushi/toml"
-	"github.com/buildpacks/lifecycle"
+	lcenv "github.com/buildpacks/lifecycle/env"
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
@@ -443,7 +443,7 @@ func (l *Build) setupEnvs(env []string) ([]string, error) {
 	if err := setupEnvDir(envs.Build, envBuild, vars); err != nil {
 		return nil, err
 	}
-	lcEnv := lifecycleEnv(env)
+	lcEnv := lcenv.Env{RootDirMap: lcenv.POSIXBuildEnv, Vars: envToMap(env)}
 	if err := lcEnv.AddEnvDir(envBuild); err != nil {
 		return nil, err
 	}
@@ -620,59 +620,8 @@ func readLayerTOML(path string) (layerTOML, error) {
 	return out, nil
 }
 
-func lifecycleEnv(env []string) *lifecycle.Env {
-	return &lifecycle.Env{
-		LookupEnv: func(key string) (string, bool) {
-			for i := range env {
-				kv := strings.SplitN(env[i], "=", 2)
-				if len(kv) == 2 && kv[0] == key {
-					return kv[1], true
-				}
-			}
-			return "", false
-		},
-		Getenv: func(key string) string {
-			for i := range env {
-				kv := strings.SplitN(env[i], "=", 2)
-				if len(kv) == 2 && kv[0] == key {
-					return kv[1]
-				}
-			}
-			return ""
-		},
-		Setenv: func(key, value string) error {
-			i := 0
-			for _, e := range env {
-				kv := strings.SplitN(e, "=", 2)
-				if len(kv) == 2 && kv[0] != key {
-					env[i] = e
-					i++
-				}
-			}
-			env = append(env[:i], key+"="+value)
-			return nil
-		},
-		Unsetenv: func(key string) error {
-			i := 0
-			for _, e := range env {
-				kv := strings.SplitN(e, "=", 2)
-				if len(kv) == 2 && kv[0] != key {
-					env[i] = e
-					i++
-				}
-			}
-			env = env[:i]
-			return nil
-		},
-		Environ: func() []string {
-			return env
-		},
-		Map: lifecycle.POSIXBuildEnv,
-	}
-}
-
 func setupLinkEnv(env []string, links []linkInfo) ([]string, error) {
-	lcEnv := lifecycleEnv(env)
+	lcEnv := lcenv.Env{RootDirMap: lcenv.POSIXBuildEnv, Vars: envToMap(env)}
 	for _, link := range links {
 		if err := lcEnv.AddRootDir(link.LayerDir); err != nil {
 			return nil, err
@@ -686,5 +635,17 @@ func setupLinkEnv(env []string, links []linkInfo) ([]string, error) {
 			return nil, err
 		}
 	}
-	return env, nil
+	return lcEnv.List(), nil
+}
+
+func envToMap(env []string) map[string]string {
+	vars := map[string]string{}
+	for _, kv := range env {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		vars[parts[0]] = parts[1]
+	}
+	return vars
 }
