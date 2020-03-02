@@ -66,7 +66,7 @@ func main() {
 		var in, out, pf string
 		flag.StringVar(&in, "i", "", "input path to directory")
 		flag.StringVar(&out, "o", "", "output path to buildpack tgz")
-		flag.StringVar(&pf, "p", command, "path to pf binary")
+		flag.StringVar(&pf, "p", "", "path to pf binary")
 		flag.Parse()
 		if out == "" {
 			flag.Usage()
@@ -141,12 +141,24 @@ func writeBuildpack(dst, src, path string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if err := writeFile(filepath.Join(tempDir, "buildpack.toml"), bpTOML); err != nil {
+	if err := writeTOML(filepath.Join(tempDir, "buildpack.toml"), bpTOML); err != nil {
 		return err
 	}
-	if err := copyFile(filepath.Join(tempDir, "pf"), path); err != nil {
-		return err
+	if path != "" {
+		if err := copyFile(filepath.Join(tempDir, "pf"), path); err != nil {
+			return err
+		}
+	} else {
+		pf, err := getLinuxPF()
+		if err != nil {
+			return err
+		}
+		defer pf.Close()
+		if err := writeFile(filepath.Join(tempDir, "pf"), pf, 0777); err != nil {
+			return err
+		}
 	}
+
 	binDir := filepath.Join(tempDir, "bin")
 	if err := os.Mkdir(binDir, 0777); err != nil {
 		return err
@@ -197,8 +209,20 @@ func copyFile(dst, src string) error {
 	return out.Close()
 }
 
-func writeFile(dst string, v interface{}) error {
-	f, err := os.Create(dst)
+func writeFile(path string, in io.Reader, perm os.FileMode) error {
+	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
+}
+
+func writeTOML(path string, v interface{}) error {
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}

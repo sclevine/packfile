@@ -1,0 +1,20 @@
+#!/bin/bash
+
+set -e
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+rm -rf out statik testout
+mkdir out testout
+
+echo "Building pf CLI..."
+GOOS=linux go build -o out/pf.linux ./cmd/pf
+statik -src=./out -include=pf.linux -tags '!linux'
+go build -o out/pf ./cmd/pf
+
+echo "Building pf buildpack..."
+out/pf -o out/pf.tgz
+
+echo "Building testdata..."
+out/pf -i testdata/node -o testout/node.tgz
+out/pf -i testdata/npm -o testout/npm.tgz
