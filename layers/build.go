@@ -1,14 +1,18 @@
 package layers
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"text/template"
 
 	"github.com/BurntSushi/toml"
 	"github.com/buildpacks/lifecycle"
@@ -316,15 +320,21 @@ func (l *Build) Run() {
 		l.Err = err
 		return
 	}
-	env, err = setupEnvs(env, l.provide().Env, l.LayerDir, l.AppDir)
+	env, err = l.setupEnvs(env)
 	if err != nil {
 		l.Err = err
 		return
 	}
-	if err := setupProfile(l.provide().Profile, l.LayerDir); err != nil {
+	if err := l.setupProfile(); err != nil {
 		l.Err = err
 		return
 	}
+	env, depsDir, err := l.setupDeps(env)
+	if err != nil {
+		l.Err = err
+		return
+	}
+	defer os.RemoveAll(depsDir)
 
 	cmd, c, err := execCmd(&l.provide().Exec, l.CtxDir, l.Shell)
 	if err != nil {
@@ -352,19 +362,19 @@ func (l *Build) Run() {
 		l.Err = err
 		return
 	}
-	metadata, err := l.Metadata.ReadAll()
+	md, err := l.Metadata.ReadAll()
 	if err != nil {
 		l.Err = err
 		return
 	}
 	versionStr := "."
-	if v, ok := metadata["version"].(string); ok {
+	if v, ok := md["version"].(string); ok {
 		versionStr = " with version: " + v
 	}
 	fmt.Fprintf(w, "Built layer '%s'%s\n", l.Layer.Name, versionStr)
-	delete(metadata, "launch")
-	delete(metadata, "build")
-	layerTOML.Metadata.Saved = metadata
+	delete(md, "launch")
+	delete(md, "build")
+	layerTOML.Metadata.Saved = md
 	l.Err = writeTOML(layerTOML, layerTOMLPath)
 }
 
@@ -419,6 +429,155 @@ func (l *Build) digest() string {
 		fmt.Fprintf(hash, "%t\n%t\n", link.LinkContent, link.LinkVersion)
 	}
 	return fmt.Sprintf("%x", hash.Sum(nil))
+}
+
+func (l *Build) setupEnvs(env []string) ([]string, error) {
+	envs := l.provide().Env
+	envBuild := filepath.Join(l.LayerDir, "env.build")
+	envLaunch := filepath.Join(l.LayerDir, "env.launch")
+	vars := struct {
+		Layer string
+		App   string
+	}{l.LayerDir, l.AppDir}
+
+	if err := setupEnvDir(envs.Build, envBuild, vars); err != nil {
+		return nil, err
+	}
+	lcEnv := lifecycleEnv(env)
+	if err := lcEnv.AddEnvDir(envBuild); err != nil {
+		return nil, err
+	}
+	return lcEnv.List(), setupEnvDir(envs.Launch, envLaunch, vars)
+}
+
+func setupEnvDir(env []packfile.Env, path string, vars interface{}) error {
+	if err := os.Mkdir(path, 0777); err != nil {
+		return err
+	}
+	for _, e := range env {
+		if e.Name == "" {
+			continue
+		}
+		if e.Op == "" {
+			e.Op = "override"
+		}
+		var err error
+		e.Value, err = interpolate(e.Value, vars)
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(path, e.Name+"."+e.Op)
+		if err := ioutil.WriteFile(path, []byte(e.Value), 0777); err != nil {
+			return err
+		}
+		if e.Delim != "" {
+			path := filepath.Join(path, e.Name+".delim")
+			if err := ioutil.WriteFile(path, []byte(e.Delim), 0777); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func interpolate(text string, vars interface{}) (string, error) {
+	tmpl, err := template.New("vars").Parse(text)
+	if err != nil {
+		return "", err
+	}
+	out := &bytes.Buffer{}
+	if err := tmpl.Execute(out, vars); err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
+func (l *Build) setupProfile() error {
+	profiles := l.provide().Profile
+	pad := 1 + int(math.Log10(float64(len(profiles))))
+	profiled := filepath.Join(l.LayerDir, "profile.d")
+	if err := os.Mkdir(profiled, 0777); err != nil {
+		return err
+	}
+	for i, file := range profiles {
+		path := filepath.Join(profiled, fmt.Sprintf("%0*d.sh", pad, i))
+		if file.Inline != "" {
+			err := ioutil.WriteFile(path, []byte(file.Inline), 0777)
+			if err != nil {
+				return err
+			}
+		} else if file.Path != "" {
+			if err := copyFileContents(path, file.Path); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func copyFileContents(dst, src string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	fi, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", src)
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
+}
+
+func (l *Build) setupDeps(env []string) (envOut []string, dir string, err error) {
+	dir, err = ioutil.TempDir("", "packfile.deps."+l.Layer.Name)
+	if err != nil {
+		return nil, "", err
+	}
+	storeDir := filepath.Join(dir, "store")
+	if err := os.Mkdir(storeDir, 0777); err != nil {
+		return nil, "", err
+	}
+	var deps []packfile.Dep
+	vars, err := l.Metadata.ReadAll()
+	if err != nil {
+		return nil, "", err
+	}
+	for _, dep := range l.provide().Deps {
+		if dep.Name, err = interpolate(dep.Name, vars); err != nil {
+			return nil, "", err
+		}
+		if dep.Version, err = interpolate(dep.Version, vars); err != nil {
+			return nil, "", err
+		}
+		if dep.URI, err = interpolate(dep.URI, vars); err != nil {
+			return nil, "", err
+		}
+		if dep.SHA, err = interpolate(dep.SHA, vars); err != nil {
+			return nil, "", err
+		}
+		deps = append(deps, dep)
+	}
+	configPath := filepath.Join(dir, "config.toml")
+	if err := writeTOML(packfile.ConfigTOML{
+		ContextDir:  l.CtxDir,
+		StoreDir:    storeDir,
+		MetadataDir: l.Metadata.Dir(),
+		Deps:        deps,
+	}, configPath); err != nil {
+		return nil, "", err
+	}
+	return append(env, "PF_CONFIG_PATH="+configPath), dir, nil
 }
 
 func writeField(out io.Writer, values ...string) {

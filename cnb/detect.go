@@ -38,7 +38,7 @@ func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
 		if lp.Require == nil && lp.Build == nil {
 			continue
 		}
-		mdDir, err := ioutil.TempDir("", "packfile."+lp.Name)
+		mdDir, err := ioutil.TempDir("", "packfile.md."+lp.Name)
 		if err != nil {
 			return err
 		}

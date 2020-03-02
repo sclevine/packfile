@@ -106,8 +106,8 @@ type File struct {
 }
 
 type ConfigTOML struct {
-	BuildpackDir string `toml:"buildpack-dir"`
-	StoreDir     string `toml:"store-dir"`
-	MetadataDir  string `toml:"metadata-dir"`
-	Deps         []Dep  `toml:"deps"`
+	ContextDir  string `toml:"context-dir"`
+	StoreDir    string `toml:"store-dir"`
+	MetadataDir string `toml:"metadata-dir"`
+	Deps        []Dep  `toml:"deps"`
 }

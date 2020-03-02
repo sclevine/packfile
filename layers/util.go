@@ -1,17 +1,14 @@
 package layers
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"text/template"
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
@@ -138,112 +135,6 @@ func execCmd(e *packfile.Exec, ctxDir, shell string) (*exec.Cmd, io.Closer, erro
 	return exec.Command(shell, append(args, filepath.Join(ctxDir, e.Path))...), nopCloser{}, nil
 }
 
-func setupEnvs(env []string, envs packfile.Envs, layerDir, appDir string) ([]string, error) {
-	envBuild := filepath.Join(layerDir, "env.build")
-	envLaunch := filepath.Join(layerDir, "env.launch")
-	vars := struct {
-		Layer string
-		App   string
-	}{layerDir, appDir}
-
-	if err := setupEnvDir(envs.Build, envBuild, vars); err != nil {
-		return nil, err
-	}
-	lcEnv := lifecycleEnv(env)
-	if err := lcEnv.AddEnvDir(envBuild); err != nil {
-		return nil, err
-	}
-	return lcEnv.List(), setupEnvDir(envs.Launch, envLaunch, vars)
-}
-
-func setupEnvDir(env []packfile.Env, path string, vars interface{}) error {
-	if err := os.Mkdir(path, 0777); err != nil {
-		return err
-	}
-	for _, e := range env {
-		if e.Name == "" {
-			continue
-		}
-		if e.Op == "" {
-			e.Op = "override"
-		}
-		var err error
-		e.Value, err = interpolate(e.Value, vars)
-		if err != nil {
-			return err
-		}
-		path := filepath.Join(path, e.Name+"."+e.Op)
-		if err := ioutil.WriteFile(path, []byte(e.Value), 0777); err != nil {
-			return err
-		}
-		if e.Delim != "" {
-			path := filepath.Join(path, e.Name+".delim")
-			if err := ioutil.WriteFile(path, []byte(e.Delim), 0777); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func interpolate(value string, vars interface{}) (string, error) {
-	tmpl, err := template.New("vars").Parse(value)
-	if err != nil {
-		return "", err
-	}
-	out := &bytes.Buffer{}
-	if err := tmpl.Execute(out, vars); err != nil {
-		return "", err
-	}
-	return out.String(), nil
-}
-
-func setupProfile(profiles []packfile.File, path string) error {
-	pad := 1 + int(math.Log10(float64(len(profiles))))
-	profiled := filepath.Join(path, "profile.d")
-	if err := os.Mkdir(profiled, 0777); err != nil {
-		return err
-	}
-	for i, file := range profiles {
-		path := filepath.Join(profiled, fmt.Sprintf("%0*d.sh", pad, i))
-		if file.Inline != "" {
-			err := ioutil.WriteFile(path, []byte(file.Inline), 0777)
-			if err != nil {
-				return err
-			}
-		} else if file.Path != "" {
-			if err := copyFileContents(path, file.Path); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func copyFileContents(dst, src string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	fi, err := in.Stat()
-	if err != nil {
-		return err
-	}
-	if !fi.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", src)
-	}
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Close()
-}
-
 type rmCloser struct{ path string }
 
 func (c rmCloser) Close() error { return os.Remove(c.path) }
@@ -317,11 +208,11 @@ func readRequire(name string, metadata metadata.Store) (Require, error) {
 	return out, nil
 }
 
-func writeTOML(lt interface{}, path string) error {
+func writeTOML(v interface{}, path string) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	return toml.NewEncoder(f).Encode(lt)
+	return toml.NewEncoder(f).Encode(v)
 }

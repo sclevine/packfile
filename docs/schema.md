@@ -49,7 +49,7 @@ shell = "/usr/bin/env bash"
 inline = "<script>"
 path = "<path to script>"
 
-# all deps fields can be go-templated
+# all deps fields can be go-templated with metadata
 [[layers.provide.deps]]
 name = "<dep name>"
 version = "<dep version>"

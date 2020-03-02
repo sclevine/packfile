@@ -14,6 +14,7 @@ import (
 
 	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/cnb"
+	"github.com/sclevine/packfile/deps"
 )
 
 func main() {
@@ -35,9 +36,32 @@ func main() {
 			log.Fatal("Error: build requires three arguments")
 		}
 		pf, ctxDir := findPackfile(command)
+		dotBinDir := filepath.Join(filepath.Dir(filepath.Dir(command)), ".bin")
+		pathEnv := dotBinDir + string(os.PathListSeparator) + os.Getenv("PATH")
+		if err := os.Setenv("PATH", pathEnv); err != nil {
+			log.Fatalf("Error: %s", err)
+		}
 		if err := cnb.Build(&pf, ctxDir, os.Args[1], os.Args[2], os.Args[3]); err != nil {
 			log.Fatalf("Error: %s", err)
 		}
+	case "get-dep":
+		if n := len(os.Args); n != 2 && n != 3 {
+			log.Fatal("Usage: get-dep <name> [<version>]")
+		}
+		name := os.Args[1]
+		var version string
+		if len(os.Args) == 3 {
+			version = os.Args[2]
+		}
+		var config packfile.ConfigTOML
+		if _, err := toml.DecodeFile(os.Getenv("PF_CONFIG_PATH"), &config); err != nil {
+			log.Fatalf("Error: %s", err)
+		}
+		path, err := deps.Get(&config, name, version)
+		if err != nil {
+			log.Fatalf("Error: %s", err)
+		}
+		fmt.Println(path)
 	default:
 		var in, out, pf string
 		flag.StringVar(&in, "i", "", "input path to directory")
@@ -127,6 +151,10 @@ func writeBuildpack(dst, src, path string) error {
 	if err := os.Mkdir(binDir, 0777); err != nil {
 		return err
 	}
+	dotBinDir := filepath.Join(tempDir, ".bin")
+	if err := os.Mkdir(dotBinDir, 0777); err != nil {
+		return err
+	}
 	pfLink := filepath.Join("..", "pf")
 	if err := os.Symlink(pfLink, filepath.Join(binDir, "build")); err != nil {
 		return err
@@ -134,11 +162,14 @@ func writeBuildpack(dst, src, path string) error {
 	if err := os.Symlink(pfLink, filepath.Join(binDir, "detect")); err != nil {
 		return err
 	}
+	if err := os.Symlink(pfLink, filepath.Join(dotBinDir, "get-dep")); err != nil {
+		return err
+	}
 	args := []string{"-czf", dst}
 	if src != "" {
 		args = append(args, "-C", src, ".")
 	}
-	args = append(args, "-C", tempDir, "./pf", "./bin", "./buildpack.toml")
+	args = append(args, "-C", tempDir, "./pf", "./bin", "./.bin", "./buildpack.toml")
 	return exec.Command("tar", args...).Run()
 }
 
