@@ -64,8 +64,8 @@ echo v$(wget -q -O - "$url") > "$MD/version"
 # sha is checked if specified
 [[layers.provide.deps]]
 name = "node"
-version = "{{version}}"
-uri = "https://nodejs.org/dist/{{version}}/node-{{version}}-linux-x64.tar.xz"
+version = "{{.version}}"
+uri = "https://nodejs.org/dist/{{.version}}/node-{{.version}}-linux-x64.tar.xz"
 
 [layers.provide]
 inline = """
@@ -100,8 +100,8 @@ echo v$(wget -q -O - "$url") > "$MD/version"
 
 [[layers.provide.deps]]
 name = "node"
-version = "{{version}}"
-uri = "https://nodejs.org/dist/{{version}}/node-{{version}}-linux-x64.tar.xz"
+version = "{{.version}}"
+uri = "https://nodejs.org/dist/{{.version}}/node-{{.version}}-linux-x64.tar.xz"
 
 [layers.provide]
 inline = """

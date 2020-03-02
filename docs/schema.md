@@ -4,7 +4,6 @@ id = "<id for compilation>"
 version = "<version for compilation>"
 name = "<name for compilation>"
 shell = "/usr/bin/env bash"
-serial = false
 
 [[processes]]
 type = "<command name>"

@@ -22,11 +22,14 @@ url=https://semver.io/node/resolve/${version:-*}
 echo v$(wget -q -O - "$url") > "$MD/version"
 """
 
+[[layers.provide.deps]]
+name = "node"
+version = "{{.version}}"
+uri = "https://nodejs.org/dist/{{.version}}/node-{{.version}}-linux-x64.tar.xz"
+
 [layers.provide]
 inline = """
-version=$(cat "$MD/version")
-node_url=https://nodejs.org/dist/$version/node-$version-linux-x64.tar.xz
-tar -C "$LAYER" -xJf <(wget -q -O - "$node_url") --strip-components=1
+tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 """
 
 [[layers]]

@@ -41,7 +41,7 @@ func Get(config *packfile.ConfigTOML, name, version string) (path string, err er
 		}
 	}
 	if dep.SHA != "" && dep.SHA != sha {
-		return "", xerrors.Errorf("Error: mismatched SHA (%s != %s)\n", sha, dep.SHA)
+		return "", xerrors.Errorf("mismatched SHA (%s != %s)\n", sha, dep.SHA)
 	}
 	md := map[string]interface{}{"name": dep.Name}
 	if dep.Version != "" {
@@ -76,12 +76,12 @@ func (w *writeCounter) Write(p []byte) (int, error) {
 	if n, err := w.hash.Write(p); err != nil {
 		return n, err
 	}
-	fmt.Printf("\r%s", strings.Repeat(" ", 50))
+	fmt.Fprintf(os.Stderr, "\r%s", strings.Repeat(" ", 50))
 	size := "unknown"
 	if w.len >= 0 {
 		size = humanize.Bytes(uint64(w.len))
 	}
-	fmt.Printf("\rDownloading %s: %s / %s", w.name, humanize.Bytes(uint64(w.n)), size)
+	fmt.Fprintf(os.Stderr, "\rDownloading %s: %s / %s", w.name, humanize.Bytes(uint64(w.n)), size)
 	return len(p), nil
 }
 
@@ -106,7 +106,7 @@ func download(uri, filepath string) (sha string, err error) {
 	if _, err := io.Copy(out, io.TeeReader(resp.Body, counter)); err != nil {
 		return "", err
 	}
-	fmt.Println()
+	fmt.Fprintln(os.Stderr)
 	return fmt.Sprintf("%x", counter.hash.Sum(nil)), out.Close()
 }
 
