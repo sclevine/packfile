@@ -1,3 +1,5 @@
+## Schema
+
 ```toml
 [config]
 id = "<id for compilation>"
@@ -53,7 +55,7 @@ path = "<path to script>"
 name = "<dep name>"
 version = "<dep version>"
 uri = "<dep uri>"
-sha = "<dep sha checksum>"
+sha = "<dep sha checksum>" # verified on download
 
 [layers.provide.deps.metadata]
 # additional metadata

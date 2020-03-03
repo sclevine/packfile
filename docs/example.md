@@ -1,8 +1,14 @@
+## Examples
 
 ### Separate
 
 #### NPM
 ```toml
+[config]
+id = "sh.scl.npm"
+version = "0.0.0"
+name = "NPM Packfile"
+
 [[processes]]
 type = "web"
 command = "npm start"
@@ -37,7 +43,7 @@ echo "$sha-$(node -v)" > "$MD/version"
 [layers.build]
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
-mv node_modules “$LAYER/"
+mv node_modules "$LAYER/"
 """
 
 [[layers.build.links]]
@@ -47,8 +53,13 @@ path-as = "NPM_CACHE"
 
 #### Node
 ```toml
+[config]
+id = "sh.scl.node-engine"
+version = "0.0.0"
+name = "Node Engine Packfile"
+
 [[layers]]
-name = "nodejs" 
+name = "nodejs"
 store = true
 
 [layers.provide.test]
@@ -58,10 +69,6 @@ url=https://semver.io/node/resolve/${version:-*}
 echo v$(wget -q -O - "$url") > "$MD/version"
 """
 
-# downloads are cleaned up after
-# all file vars from detect are present + shortcut for version
-# parameters are available
-# sha is checked if specified
 [[layers.provide.deps]]
 name = "node"
 version = "{{.version}}"
@@ -77,9 +84,17 @@ tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 
 #### Node.js
 ```toml
+[config]
+id = "sh.scl.nodejs"
+version = "0.0.0"
+name = "Node.js Packfile"
+
 [[processes]]
 type = "web"
 command = "npm start"
+
+[[caches]]
+name = "npm-cache"
 
 [[layers]]
 name = "nodejs"
@@ -107,9 +122,6 @@ uri = "https://nodejs.org/dist/{{.version}}/node-{{.version}}-linux-x64.tar.xz"
 inline = """
 tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 """
-
-[[caches]]
-name = "npm-cache"
 
 [[layers]]
 name = "modules"
@@ -141,6 +153,11 @@ path-as = "NPM_CACHE"
 
 #### Simple TCP Server
 ```toml
+[config]
+id = "sh.scl.tcp"
+version = "0.0.0"
+name = "TCP Packfile"
+
 [[processes]]
 type = "web"
 command = "run"

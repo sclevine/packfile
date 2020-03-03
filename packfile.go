@@ -30,7 +30,11 @@ type Slice struct {
 
 type Cache struct {
 	Name  string `toml:"name"`
-	Setup *Exec  `toml:"setup"`
+	Setup *Setup `toml:"setup"`
+}
+
+type Setup struct {
+	Exec
 }
 
 type Layer struct {

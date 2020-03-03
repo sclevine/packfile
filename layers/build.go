@@ -431,6 +431,23 @@ func (l *Build) digest() string {
 	return fmt.Sprintf("%x", hash.Sum(nil))
 }
 
+func writeField(out io.Writer, values ...string) {
+	for _, v := range values {
+		fmt.Fprintln(out, v)
+	}
+}
+
+func writeFile(out io.Writer, path string) {
+	if path != "" {
+		f, err := os.Open(path)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		fmt.Fprintln(out, f)
+	}
+}
+
 func (l *Build) setupEnvs(env []string) ([]string, error) {
 	envs := l.provide().Env
 	envBuild := filepath.Join(l.LayerDir, "env.build")
@@ -578,23 +595,6 @@ func (l *Build) setupDeps(env []string) (envOut []string, dir string, err error)
 		return nil, "", err
 	}
 	return append(env, "PF_CONFIG_PATH="+configPath), dir, nil
-}
-
-func writeField(out io.Writer, values ...string) {
-	for _, v := range values {
-		fmt.Fprintln(out, v)
-	}
-}
-
-func writeFile(out io.Writer, path string) {
-	if path != "" {
-		f, err := os.Open(path)
-		if err != nil {
-			return
-		}
-		defer f.Close()
-		fmt.Fprintln(out, f)
-	}
 }
 
 type layerTOML struct {

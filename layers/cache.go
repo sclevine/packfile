@@ -94,7 +94,7 @@ func (l *Cache) Run() {
 	if l.Cache.Setup == nil {
 		return
 	}
-	cmd, c, err := execCmd(l.Cache.Setup, l.CtxDir, l.Shell)
+	cmd, c, err := execCmd(&l.Cache.Setup.Exec, l.CtxDir, l.Shell)
 	if err != nil {
 		l.Err = err
 		return
