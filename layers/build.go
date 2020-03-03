@@ -282,6 +282,7 @@ func (l *Build) Run() {
 	}
 	w, _ := l.Writers()
 	fmt.Fprintf(w, "Building layer '%s'...\n", l.Layer.Name)
+	l.Flush()
 	if err := os.RemoveAll(l.LayerDir); err != nil {
 		l.Err = err
 		return
@@ -371,6 +372,7 @@ func (l *Build) Run() {
 	if v, ok := md["version"].(string); ok {
 		versionStr = " with version: " + v
 	}
+	l.Flush()
 	fmt.Fprintf(w, "Built layer '%s'%s\n", l.Layer.Name, versionStr)
 	delete(md, "launch")
 	delete(md, "build")
@@ -408,11 +410,13 @@ func (l *Build) Skip() {
 func (l *Build) digest() string {
 	hash := sha256.New()
 	writeField(hash, "build")
+	writeField(hash, l.Layer.Version, l.Layer.Metadata)
+
 	writeField(hash, l.provide().Shell, l.provide().Inline)
 	writeFile(hash, l.provide().Path)
 
 	for _, dep := range l.provide().Deps {
-		writeField(hash, dep.Name, dep.Version, dep.URI, dep.SHA)
+		writeField(hash, dep.Name, dep.Version, dep.URI, dep.SHA, dep.Metadata)
 	}
 	for _, file := range l.provide().Profile {
 		writeField(hash, file.Inline)
@@ -431,7 +435,7 @@ func (l *Build) digest() string {
 	return fmt.Sprintf("%x", hash.Sum(nil))
 }
 
-func writeField(out io.Writer, values ...string) {
+func writeField(out io.Writer, values ...interface{}) {
 	for _, v := range values {
 		fmt.Fprintln(out, v)
 	}

@@ -70,25 +70,9 @@ func (ms memStore) Write(value string, keys ...string) error {
 }
 
 func (ms memStore) WriteAll(metadata map[string]interface{}) error {
-	mergeMap(ms.m, metadata)
-	return nil
-}
-
-// FIXME: double-check logic here
-func mergeMap(to, from map[string]interface{}) {
-	for k, v := range from {
-		if vfrom, ok := v.(map[string]interface{}); ok {
-			if vto, ok := to[k].(map[string]interface{}); ok {
-				mergeMap(vto, vfrom)
-			} else {
-				vto := map[string]interface{}{}
-				to[k] = vto
-				mergeMap(vto, vfrom)
-			}
-		} else {
-			to[k] = v
-		}
-	}
+	return eachKey(metadata, nil, func(value string, keys ...string) error {
+		return ms.Write(value, keys...)
+	})
 }
 
 func (memStore) Dir() string {

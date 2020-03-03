@@ -21,6 +21,7 @@ import (
 type Streamer interface {
 	Writers() (out, err io.Writer)
 	Stream(out, err io.Writer)
+	Flush()
 	Close()
 }
 

@@ -50,9 +50,13 @@ func (l *Streamer) Stream(out, err io.Writer) {
 	wg.Wait()
 }
 
+func (l *Streamer) Flush() {
+	l.out.Flush()
+	l.err.Flush()
+}
+
 func (l *Streamer) Close() {
 	defer l.err.Close()
 	defer l.out.Close()
-	l.out.Flush()
-	l.err.Flush()
+	l.Flush()
 }
