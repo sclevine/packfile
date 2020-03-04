@@ -31,6 +31,9 @@ func (ms memStore) ReadAll() (map[string]interface{}, error) {
 func copyMap(m map[string]interface{}) map[string]interface{} {
 	out := map[string]interface{}{}
 	for k, v := range m {
+		if len(k) > 0 && k[0] == '.' {
+			continue
+		}
 		if vm, ok := v.(map[string]interface{}); ok {
 			out[k] = copyMap(vm)
 		} else {
@@ -53,7 +56,11 @@ func (ms memStore) Delete(keys ...string) error {
 }
 
 func (ms memStore) DeleteAll() error {
-	ms.m = map[string]interface{}{}
+	for k := range ms.m {
+		if len(k) == 0 || k[0] != '.' {
+			delete(ms.m, k)
+		}
+	}
 	return nil
 }
 

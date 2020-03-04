@@ -120,6 +120,21 @@ func (l *Build) layerTOML() string {
 	return l.LayerDir + ".toml"
 }
 
+func addRequire(store metadata.Store, req Require, dir string) error {
+	reqMD := map[string]interface{}{}
+	for k, v := range req.Metadata {
+		if k != "launch" && k != "build" {
+			reqMD[k] = v
+		}
+	}
+	if req.Version != "" {
+		reqMD["version"] = req.Version
+	}
+	return store.WriteAll(map[string]interface{}{
+		".requires": map[string]interface{}{dir: reqMD},
+	})
+}
+
 func mergeRequire(store metadata.Store, req Require) error {
 	prevLaunch, err := store.Read("launch")
 	if err != nil {
@@ -160,6 +175,13 @@ func mergeBoolStrings(s1, s2 string) bool {
 	return s1 == "true" || s2 == "true"
 }
 
+func padNum(n int) func(int) string {
+	pad := 1 + int(math.Log10(float64(n)))
+	return func(i int) string {
+		return fmt.Sprintf("%0*d", pad, i)
+	}
+}
+
 func (l *Build) Test() (exists, matched bool) {
 	if l.Layer.Require == nil {
 		if err := writeLayerMetadata(l.Metadata, l.Layer); err != nil {
@@ -167,7 +189,12 @@ func (l *Build) Test() (exists, matched bool) {
 			return false, false
 		}
 	}
-	for _, req := range l.Requires {
+	pad := padNum(len(l.Requires))
+	for i, req := range l.Requires {
+		if err := addRequire(l.Metadata, req, pad(i)); err != nil {
+			l.Err = err
+			return false, false
+		}
 		if err := mergeRequire(l.Metadata, req); err != nil {
 			l.Err = err
 			return false, false
@@ -225,6 +252,10 @@ func (l *Build) Test() (exists, matched bool) {
 			l.Err = err
 			return false, false
 		}
+	}
+	if err := l.Metadata.Delete(".requires"); err != nil {
+		l.Err = err
+		return false, false
 	}
 
 	layerTOMLPath := l.LayerDir + ".toml"
@@ -515,13 +546,13 @@ func interpolate(text string, vars interface{}) (string, error) {
 
 func (l *Build) setupProfile() error {
 	profiles := l.provide().Profile
-	pad := 1 + int(math.Log10(float64(len(profiles))))
+	pad := padNum(len(profiles))
 	profiled := filepath.Join(l.LayerDir, "profile.d")
 	if err := os.Mkdir(profiled, 0777); err != nil {
 		return err
 	}
 	for i, file := range profiles {
-		path := filepath.Join(profiled, fmt.Sprintf("%0*d.sh", pad, i))
+		path := filepath.Join(profiled, pad(i)+".sh")
 		if file.Inline != "" {
 			err := ioutil.WriteFile(path, []byte(file.Inline), 0777)
 			if err != nil {

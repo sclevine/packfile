@@ -94,7 +94,6 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 		if layer.Build == nil && layer.Provide == nil {
 			continue
 		}
-		// TODO: move metadata dir into individual layer Init/Cleanup methods?
 		mdDir, err := ioutil.TempDir("", "packfile.md."+layer.Name)
 		if err != nil {
 			return err

@@ -10,7 +10,6 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-
 func NewFS(path string) Store {
 	return fsStore{path}
 }
@@ -39,6 +38,31 @@ func (fs fsStore) ReadAll() (map[string]interface{}, error) {
 	})
 }
 
+func (fs fsStore) eachFile(m map[string]interface{}, start []string, fn func(m map[string]interface{}, keys ...string) error) error {
+	files, err := ioutil.ReadDir(fs.keyPath(start...))
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		name := f.Name()
+		if len(name) >  0 && name[0] == '.' {
+			continue
+		}
+		if f.IsDir() {
+			n := map[string]interface{}{}
+			m[name] = n
+			if err := fs.eachFile(n, append(start, name), fn); err != nil {
+				return err
+			}
+		} else {
+			if err := fn(m, append(start, name)...); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (fs fsStore) Delete(keys ...string) error {
 	if len(keys) == 0 {
 		return ErrNoKeys
@@ -52,7 +76,11 @@ func (fs fsStore) DeleteAll() error {
 		return err
 	}
 	for _, f := range files {
-		if err := fs.Delete(f.Name()); err != nil {
+		name := f.Name()
+		if len(name) > 0 && name[0] == '.' {
+			continue
+		}
+		if err := fs.Delete(name); err != nil {
 			return err
 		}
 	}
@@ -86,27 +114,6 @@ func (fs fsStore) WriteAll(metadata map[string]interface{}) error {
 
 func (fs fsStore) Dir() string {
 	return fs.path
-}
-
-func (fs fsStore) eachFile(m map[string]interface{}, start []string, fn func(m map[string]interface{}, keys ...string) error) error {
-	files, err := ioutil.ReadDir(fs.keyPath(start...))
-	if err != nil {
-		return err
-	}
-	for _, f := range files {
-		if f.IsDir() {
-			n := map[string]interface{}{}
-			m[f.Name()] = n
-			if err := fs.eachFile(n, append(start, f.Name()), fn); err != nil {
-				return err
-			}
-		} else {
-			if err := fn(m, append(start, f.Name())...); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func eachKey(m map[string]interface{}, start []string, fn func(v string, keys ...string) error) error {

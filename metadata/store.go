@@ -2,6 +2,7 @@ package metadata
 
 import "golang.org/x/xerrors"
 
+// Store ignores values that begin with '.' for ReadAll and DeleteAll
 type Store interface {
 	Read(keys ...string) (string, error)
 	ReadAll() (map[string]interface{}, error)
