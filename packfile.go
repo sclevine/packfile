@@ -25,7 +25,7 @@ type Process struct {
 }
 
 type Slice struct {
-	Paths []string `tom:"paths"`
+	Paths []string `toml:"paths"`
 }
 
 type Cache struct {
