@@ -8,6 +8,7 @@ type Packfile struct {
 	Caches    []Cache   `toml:"caches"`
 	Layers    []Layer   `toml:"layers"`
 	Slices    []Slice   `toml:"slices"`
+	Stacks    []Stack   `toml:"stacks"`
 }
 
 type Config struct {
@@ -26,6 +27,11 @@ type Process struct {
 
 type Slice struct {
 	Paths []string `toml:"paths"`
+}
+
+type Stack struct {
+	ID     string   `toml:"id"`
+	Mixins []string `toml:"mixins,omitempty"`
 }
 
 type Cache struct {

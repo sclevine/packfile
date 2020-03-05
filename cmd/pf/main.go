@@ -92,17 +92,13 @@ func findPackfile(command string) (pf packfile.Packfile, dir string) {
 type buildpackTOML struct {
 	API       string        `toml:"api"`
 	Buildpack buildpackInfo `toml:"buildpack"`
-	Stacks    []stackInfo   `toml:"stacks"`
+	Stacks    []packfile.Stack   `toml:"stacks"`
 }
 
 type buildpackInfo struct {
 	ID      string `toml:"id"`
 	Version string `toml:"version"`
 	Name    string `toml:"name"`
-}
-
-type stackInfo struct {
-	ID string `toml:"id"`
 }
 
 var packfileBuildpack = buildpackTOML{
@@ -112,7 +108,7 @@ var packfileBuildpack = buildpackTOML{
 		Version: "0.0.1",
 		Name:    "Packfile Buildpack",
 	},
-	Stacks: []stackInfo{
+	Stacks: []packfile.Stack{
 		{ID: "io.buildpacks.stacks.bionic"},
 		{ID: "org.cloudfoundry.stacks.cflinuxfs3"},
 		{ID: "org.cloudfoundry.stacks.tiny"},
@@ -136,7 +132,7 @@ func writeBuildpack(dst, src, path string) error {
 				Version: pf.Config.Version,
 				Name:    pf.Config.Name,
 			},
-			Stacks: packfileBuildpack.Stacks,
+			Stacks: pf.Stacks,
 		}
 	} else if !os.IsNotExist(err) {
 		return err
