@@ -246,8 +246,7 @@ func (l *Build) Test() (exists, matched bool) {
 	layerTOML.Build = mdToBool(l.Metadata.Read("build"))
 	layerTOML.Launch = mdToBool(l.Metadata.Read("launch"))
 
-	// TODO: use cached build ID when store.toml is implemented in lifecycle
-	cachedBuildID := l.LastBuildID // layerTOML.Metadata.BuildID
+	cachedBuildID := layerTOML.Metadata.BuildID
 	layerTOML.Metadata.BuildID = l.BuildID
 
 	oldVersion := layerTOML.Metadata.Version
