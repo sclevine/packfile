@@ -1,6 +1,6 @@
 package metadata
 
-func NewMemory() Store {
+func NewMemory() Metadata {
 	return memStore{m: map[string]interface{}{}}
 }
 
@@ -80,10 +80,6 @@ func (ms memStore) WriteAll(metadata map[string]interface{}) error {
 	return eachKey(metadata, nil, func(value string, keys ...string) error {
 		return ms.Write(value, keys...)
 	})
-}
-
-func (memStore) Dir() string {
-	panic("metadata is in-memory-only")
 }
 
 func (ms memStore) getMap(keys []string) (map[string]interface{}, error) {

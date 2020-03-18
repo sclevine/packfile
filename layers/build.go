@@ -8,10 +8,7 @@ import (
 	"io/ioutil"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"syscall"
 	"text/template"
 
 	"github.com/BurntSushi/toml"
@@ -26,15 +23,15 @@ import (
 type Build struct {
 	Streamer
 	LinkShare
-	Layer       *packfile.Layer
-	Requires    []Require
-	Shell       string
-	AppDir      string
-	CtxDir      string
-	BuildID     string
-	LastBuildID string
-	links       []linkInfo
-	syncs       []sync.Link
+	Layer         *packfile.Layer
+	ProvideRunner packfile.ProvideRunner
+	TestRunner    packfile.TestRunner
+	Requires      []Require
+	AppDir        string
+	BuildID       string
+	LastBuildID   string
+	links         []linkInfo
+	syncs         []sync.Link
 }
 
 func (l *Build) info() linkerInfo {
@@ -110,17 +107,14 @@ func (l *Build) fullEnv() bool {
 }
 
 func (l *Build) provide() *packfile.Provide {
-	if l.Layer.Provide != nil {
-		return l.Layer.Provide
-	}
-	return l.Layer.Build
+	return l.Layer.FindProvide()
 }
 
 func (l *Build) layerTOML() string {
 	return l.LayerDir + ".toml"
 }
 
-func addRequire(store metadata.Store, req Require, dir string) error {
+func addRequire(md metadata.Metadata, req Require, dir string) error {
 	reqMD := map[string]interface{}{}
 	for k, v := range req.Metadata {
 		if k != "launch" && k != "build" {
@@ -130,31 +124,31 @@ func addRequire(store metadata.Store, req Require, dir string) error {
 	if req.Version != "" {
 		reqMD["version"] = req.Version
 	}
-	return store.WriteAll(map[string]interface{}{
+	return md.WriteAll(map[string]interface{}{
 		".requires": map[string]interface{}{dir: reqMD},
 	})
 }
 
-func mergeRequire(store metadata.Store, req Require) error {
-	prevLaunch, err := store.Read("launch")
+func mergeRequire(md metadata.Metadata, req Require) error {
+	prevLaunch, err := md.Read("launch")
 	if err != nil {
 		prevLaunch = "false"
 	}
-	prevBuild, err := store.Read("build")
+	prevBuild, err := md.Read("build")
 	if err != nil {
 		prevBuild = "false"
 	}
-	if err := store.DeleteAll(); err != nil {
+	if err := md.DeleteAll(); err != nil {
 		return err
 	}
-	if err := store.WriteAll(req.Metadata); err != nil {
+	if err := md.WriteAll(req.Metadata); err != nil {
 		return err
 	}
-	nextLaunch, err := store.Read("launch")
+	nextLaunch, err := md.Read("launch")
 	if err != nil {
 		nextLaunch = "false"
 	}
-	nextBuild, err := store.Read("build")
+	nextBuild, err := md.Read("build")
 	if err != nil {
 		nextBuild = "false"
 	}
@@ -168,7 +162,7 @@ func mergeRequire(store metadata.Store, req Require) error {
 	if mergeBoolStrings(nextBuild, prevBuild) {
 		others["build"] = "true"
 	}
-	return store.WriteAll(others)
+	return md.WriteAll(others)
 }
 
 func mergeBoolStrings(s1, s2 string) bool {
@@ -201,8 +195,8 @@ func (l *Build) Test() (exists, matched bool) {
 		}
 	}
 
-	env := os.Environ()
-	env = append(env, "APP="+l.AppDir, "MD="+l.Metadata.Dir())
+	env := packfile.NewEnvMap(os.Environ())
+	md := newMetadataMap(l.Metadata)
 
 	for _, link := range l.links {
 		if link.Err != nil {
@@ -210,7 +204,7 @@ func (l *Build) Test() (exists, matched bool) {
 			return false, false
 		}
 		if l.fullEnv() && link.PathEnv != "" {
-			env = append(env, link.PathEnv+"="+link.LayerDir)
+			env[link.PathEnv] = link.LayerDir
 		}
 		if link.VersionEnv != "" {
 			lt, err := readLayerTOML(link.layerTOML())
@@ -218,37 +212,21 @@ func (l *Build) Test() (exists, matched bool) {
 				l.Err = err
 				return false, false
 			}
-			env = append(env, link.VersionEnv+"="+lt.Metadata.Version)
+			env[link.VersionEnv] = lt.Metadata.Version
 		}
 		if link.MetadataEnv != "" {
-			env = append(env, link.MetadataEnv+"="+link.Metadata.Dir())
+			md.links[link.MetadataEnv] = link.Metadata
 		}
 	}
 	if l.fullEnv() {
-		var err error
-		env, err = setupLinkEnv(env, l.links)
-		if err != nil {
+		if err := setupLinkEnv(env, l.links); err != nil {
 			l.Err = err
 			return
 		}
 	}
-	if l.provide().Test != nil {
-		cmd, c, err := execCmd(&l.provide().Test.Exec, l.CtxDir, l.Shell)
-		if err != nil {
-			l.Err = err
-			return false, false
-		}
-		defer c.Close()
-		cmd.Dir = l.AppDir
-		cmd.Env = env
-		cmd.Stdout, cmd.Stderr = l.Writers()
-		if err := cmd.Run(); err != nil {
-			if err, ok := err.(*exec.ExitError); ok {
-				if status, ok := err.Sys().(syscall.WaitStatus); ok {
-					l.Err = CodeError(status.ExitStatus())
-					return false, false
-				}
-			}
+	env["APP"] = l.AppDir
+	if l.TestRunner != nil {
+		if err := l.TestRunner.Test(l.Streamer, env, md); err != nil {
 			l.Err = err
 			return false, false
 		}
@@ -311,16 +289,14 @@ func (l *Build) Run() {
 	if l.Err != nil {
 		return
 	}
-	w, _ := l.Writers()
-	fmt.Fprintf(w, "Building layer '%s'...\n", l.Layer.Name)
-	l.Flush()
+	fmt.Fprintf(l.Stdout(), "Building layer '%s'...\n", l.Layer.Name)
 	if err := os.RemoveAll(l.LayerDir); err != nil {
 		l.Err = err
 		return
 	}
 
-	env := os.Environ()
-	env = append(env, "APP="+l.AppDir, "MD="+l.Metadata.Dir(), "LAYER="+l.LayerDir)
+	env := packfile.NewEnvMap(os.Environ())
+	md := newMetadataMap(l.Metadata)
 
 	for _, link := range l.links {
 		if link.Err != nil {
@@ -328,7 +304,7 @@ func (l *Build) Run() {
 			return
 		}
 		if link.PathEnv != "" {
-			env = append(env, link.PathEnv+"="+link.LayerDir)
+			env[link.PathEnv] = link.LayerDir
 		}
 		if link.VersionEnv != "" {
 			lt, err := readLayerTOML(link.layerTOML())
@@ -336,15 +312,13 @@ func (l *Build) Run() {
 				l.Err = err
 				return
 			}
-			env = append(env, link.VersionEnv+"="+lt.Metadata.Version)
+			env[link.VersionEnv] = lt.Metadata.Version
 		}
 		if link.MetadataEnv != "" {
-			env = append(env, link.MetadataEnv+"="+link.Metadata.Dir())
+			md.links[link.MetadataEnv] = link.Metadata
 		}
 	}
-	var err error
-	env, err = setupLinkEnv(env, l.links)
-	if err != nil {
+	if err := setupLinkEnv(env, l.links); err != nil {
 		l.Err = err
 		return
 	}
@@ -352,8 +326,7 @@ func (l *Build) Run() {
 		l.Err = err
 		return
 	}
-	env, err = l.setupEnvs(env)
-	if err != nil {
+	if err := l.setupEnvs(env); err != nil {
 		l.Err = err
 		return
 	}
@@ -361,29 +334,15 @@ func (l *Build) Run() {
 		l.Err = err
 		return
 	}
-	env, depsDir, err := l.setupDeps(env)
+	deps, err := l.getDeps()
 	if err != nil {
 		l.Err = err
 		return
 	}
-	defer os.RemoveAll(depsDir)
 
-	cmd, c, err := execCmd(&l.provide().Exec, l.CtxDir, l.Shell)
-	if err != nil {
-		l.Err = err
-		return
-	}
-	defer c.Close()
-	cmd.Dir = l.AppDir
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = l.Writers()
-	if err := cmd.Run(); err != nil {
-		if err, ok := err.(*exec.ExitError); ok {
-			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				l.Err = CodeError(status.ExitStatus())
-				return
-			}
-		}
+	env["APP"] = l.AppDir
+	env["LAYER"] = l.LayerDir
+	if err := l.ProvideRunner.Provide(l.Streamer, env, md, deps); err != nil {
 		l.Err = err
 		return
 	}
@@ -394,20 +353,19 @@ func (l *Build) Run() {
 		l.Err = err
 		return
 	}
-	md, err := l.Metadata.ReadAll()
+	versionStr := "."
+	if v, err := md.Read("version"); err == nil {
+		versionStr = " with version: " + v
+	}
+	fmt.Fprintf(l.Stdout(), "Built layer '%s'%s\n", l.Layer.Name, versionStr)
+	saved, err := l.Metadata.ReadAll()
 	if err != nil {
 		l.Err = err
 		return
 	}
-	versionStr := "."
-	if v, ok := md["version"].(string); ok {
-		versionStr = " with version: " + v
-	}
-	l.Flush()
-	fmt.Fprintf(w, "Built layer '%s'%s\n", l.Layer.Name, versionStr)
-	delete(md, "launch")
-	delete(md, "build")
-	layerTOML.Metadata.Saved = md
+	delete(saved, "launch")
+	delete(saved, "build")
+	layerTOML.Metadata.Saved = saved
 	l.Err = writeTOML(layerTOML, layerTOMLPath)
 }
 
@@ -415,8 +373,7 @@ func (l *Build) Skip() {
 	if l.Err != nil {
 		return
 	}
-	w, _ := l.Streamer.Writers()
-	fmt.Fprintf(w, "Skipping layer '%s'.\n", l.Layer.Name)
+	fmt.Fprintf(l.Stdout(), "Skipping layer '%s'.\n", l.Layer.Name)
 
 	layerTOMLPath := l.LayerDir + ".toml"
 	layerTOML, err := readLayerTOML(layerTOMLPath)
@@ -443,8 +400,7 @@ func (l *Build) digest() string {
 	writeField(hash, "build")
 	writeField(hash, l.Layer.Version, l.Layer.Metadata)
 
-	writeField(hash, l.provide().Shell, l.provide().Inline)
-	writeFile(hash, l.provide().Path)
+	writeField(hash, l.ProvideRunner.Version())
 
 	for _, dep := range l.provide().Deps {
 		writeField(hash, dep.Name, dep.Version, dep.URI, dep.SHA, dep.Metadata)
@@ -483,7 +439,7 @@ func writeFile(out io.Writer, path string) {
 	}
 }
 
-func (l *Build) setupEnvs(env []string) ([]string, error) {
+func (l *Build) setupEnvs(env packfile.EnvMap) error {
 	envs := l.provide().Env
 	envBuild := filepath.Join(l.LayerDir, "env.build")
 	envLaunch := filepath.Join(l.LayerDir, "env.launch")
@@ -493,13 +449,13 @@ func (l *Build) setupEnvs(env []string) ([]string, error) {
 	}{l.LayerDir, l.AppDir}
 
 	if err := setupEnvDir(envs.Build, envBuild, vars); err != nil {
-		return nil, err
+		return err
 	}
-	lcEnv := lcenv.Env{RootDirMap: lcenv.POSIXBuildEnv, Vars: envToMap(env)}
+	lcEnv := lcenv.Env{RootDirMap: lcenv.POSIXBuildEnv, Vars: env}
 	if err := lcEnv.AddEnvDir(envBuild); err != nil {
-		return nil, err
+		return err
 	}
-	return lcEnv.List(), setupEnvDir(envs.Launch, envLaunch, vars)
+	return setupEnvDir(envs.Launch, envLaunch, vars)
 }
 
 func setupEnvDir(env []packfile.Env, path string, vars interface{}) error {
@@ -591,45 +547,28 @@ func copyFileContents(dst, src string) error {
 	return out.Close()
 }
 
-func (l *Build) setupDeps(env []string) (envOut []string, dir string, err error) {
-	dir, err = ioutil.TempDir("", "packfile.deps."+l.Layer.Name)
-	if err != nil {
-		return nil, "", err
-	}
-	storeDir := filepath.Join(dir, "store")
-	if err := os.Mkdir(storeDir, 0777); err != nil {
-		return nil, "", err
-	}
-	var deps []packfile.Dep
+func (l *Build) getDeps() ([]packfile.Dep, error) {
 	vars, err := l.Metadata.ReadAll()
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
+	var deps []packfile.Dep
 	for _, dep := range l.provide().Deps {
 		if dep.Name, err = interpolate(dep.Name, vars); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		if dep.Version, err = interpolate(dep.Version, vars); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		if dep.URI, err = interpolate(dep.URI, vars); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		if dep.SHA, err = interpolate(dep.SHA, vars); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		deps = append(deps, dep)
 	}
-	configPath := filepath.Join(dir, "config.toml")
-	if err := writeTOML(packfile.ConfigTOML{
-		ContextDir:  l.CtxDir,
-		StoreDir:    storeDir,
-		MetadataDir: l.Metadata.Dir(),
-		Deps:        deps,
-	}, configPath); err != nil {
-		return nil, "", err
-	}
-	return append(env, "PF_CONFIG_PATH="+configPath), dir, nil
+	return deps, nil
 }
 
 type layerTOML struct {
@@ -655,32 +594,39 @@ func readLayerTOML(path string) (layerTOML, error) {
 	return out, nil
 }
 
-func setupLinkEnv(env []string, links []linkInfo) ([]string, error) {
-	lcEnv := lcenv.Env{RootDirMap: lcenv.POSIXBuildEnv, Vars: envToMap(env)}
+func setupLinkEnv(env packfile.EnvMap, links []linkInfo) error {
+	lcEnv := lcenv.Env{RootDirMap: lcenv.POSIXBuildEnv, Vars: env}
 	for _, link := range links {
 		if err := lcEnv.AddRootDir(link.LayerDir); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	for _, link := range links {
 		if err := lcEnv.AddEnvDir(filepath.Join(link.LayerDir, "env")); err != nil {
-			return nil, err
+			return err
 		}
 		if err := lcEnv.AddEnvDir(filepath.Join(link.LayerDir, "env.build")); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return lcEnv.List(), nil
+	return nil
 }
 
-func envToMap(env []string) map[string]string {
-	vars := map[string]string{}
-	for _, kv := range env {
-		parts := strings.SplitN(kv, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		vars[parts[0]] = parts[1]
-	}
-	return vars
+type metadataMap struct {
+	metadata.Metadata
+	links map[string]metadata.Metadata
 }
+
+func (m metadataMap) Link(as string) metadata.Metadata {
+	return m.links[as]
+}
+
+func (m metadataMap) Dir() string {
+	return m.Metadata.(interface{ Dir() string }).Dir()
+}
+
+func newMetadataMap(md metadata.Metadata) metadataMap {
+	return metadataMap{md, map[string]metadata.Metadata{}}
+}
+
+

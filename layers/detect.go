@@ -2,8 +2,6 @@ package layers
 
 import (
 	"os"
-	"os/exec"
-	"syscall"
 
 	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/sync"
@@ -12,10 +10,9 @@ import (
 type Detect struct {
 	Streamer
 	LinkShare
-	Layer  *packfile.Layer
-	Shell  string
-	AppDir string
-	CtxDir string
+	Layer         *packfile.Layer
+	RequireRunner packfile.RequireRunner
+	AppDir        string
 }
 
 func (l *Detect) info() linkerInfo {
@@ -46,28 +43,14 @@ func (l *Detect) Run() {
 		l.Err = err
 		return
 	}
-	if l.Layer.Require == nil {
+	if l.RequireRunner == nil {
 		return
 	}
+	env := packfile.NewEnvMap(os.Environ())
+	md := newMetadataMap(l.Metadata)
 
-	env := os.Environ()
-	env = append(env, "APP="+l.AppDir, "MD="+l.Metadata.Dir())
-	cmd, c, err := execCmd(&l.Layer.Require.Exec, l.CtxDir, l.Shell)
-	if err != nil {
-		l.Err = err
-		return
-	}
-	defer c.Close()
-	cmd.Dir = l.AppDir
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = l.Writers()
-	if err := cmd.Run(); err != nil {
-		if err, ok := err.(*exec.ExitError); ok {
-			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				l.Err = CodeError(status.ExitStatus())
-				return
-			}
-		}
+	env["APP"] = l.AppDir
+	if err := l.RequireRunner.Require(l.Streamer, env, md); err != nil {
 		l.Err = err
 		return
 	}

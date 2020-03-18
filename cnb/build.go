@@ -11,6 +11,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
+	"github.com/sclevine/packfile/exec"
 	"github.com/sclevine/packfile/layers"
 	"github.com/sclevine/packfile/metadata"
 	"github.com/sclevine/packfile/sync"
@@ -74,16 +75,26 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 	for i := range pf.Caches {
 		cache := &pf.Caches[i]
 		layerNames[cache.Name] = struct{}{}
-		linkLayers = append(linkLayers, &layers.Cache{
+		linkLayer := &layers.Cache{
 			Streamer: sync.NewStreamer(),
 			LinkShare: layers.LinkShare{
 				LayerDir: filepath.Join(layersDir, pf.Caches[i].Name),
 			},
 			Cache:  cache,
-			Shell:  shell,
 			AppDir: appDir,
-			CtxDir: ctxDir,
-		})
+		}
+		if setup := cache.Setup; setup != nil {
+			if setup.Run != nil {
+				linkLayer.SetupRunner = setup.Run
+			} else {
+				linkLayer.SetupRunner = &exec.Exec{
+					Exec: shellOverride(setup.Exec, shell),
+					Name: cache.Name,
+					CtxDir: ctxDir,
+				}
+			}
+		}
+		linkLayers = append(linkLayers, linkLayer)
 	}
 	for i := range pf.Layers {
 		layer := &pf.Layers[i]
@@ -100,20 +111,40 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 		}
 		defer os.RemoveAll(mdDir)
 		layerDir := filepath.Join(layersDir, layer.Name)
-		linkLayers = append(linkLayers, &layers.Build{
+		linkLayer := &layers.Build{
 			Streamer: sync.NewStreamer(),
 			LinkShare: layers.LinkShare{
-				Metadata: metadata.NewFS(mdDir),
 				LayerDir: layerDir,
 			},
 			Layer:       layer,
 			Requires:    plan.get(layer.Name),
-			Shell:       shell,
 			AppDir:      appDir,
-			CtxDir:      ctxDir,
 			BuildID:     store.Metadata.BuildID,
 			LastBuildID: lastBuildID,
-		})
+		}
+		if test := layer.FindProvide().Test; test != nil {
+			if test.Run != nil {
+				linkLayer.TestRunner = test.Run
+			} else {
+				linkLayer.TestRunner = &exec.Exec{
+					Exec: shellOverride(test.Exec, shell),
+					Name: layer.Name,
+					CtxDir: ctxDir,
+				}
+			}
+		}
+		if provide := layer.FindProvide(); provide.Run != nil {
+			linkLayer.Metadata = metadata.NewMemory()
+			linkLayer.ProvideRunner = provide.Run
+		} else {
+			linkLayer.Metadata = metadata.NewFS(mdDir)
+			linkLayer.ProvideRunner = &exec.Exec{
+				Exec: shellOverride(provide.Exec, shell),
+				Name: layer.Name,
+				CtxDir: ctxDir,
+			}
+		}
+		linkLayers = append(linkLayers, linkLayer)
 	}
 	if err := eachDir(layersDir, func(name string) error {
 		if _, ok := layerNames[name]; !ok {

@@ -15,6 +15,7 @@ import (
 	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/cnb"
 	"github.com/sclevine/packfile/deps"
+	"github.com/sclevine/packfile/metadata"
 )
 
 func main() {
@@ -57,7 +58,13 @@ func main() {
 		if _, err := toml.DecodeFile(os.Getenv("PF_CONFIG_PATH"), &config); err != nil {
 			log.Fatalf("Error: %s", err)
 		}
-		path, err := deps.Get(&config, name, version)
+		client := deps.Client{
+			ContextDir: config.ContextDir,
+			StoreDir:   config.StoreDir,
+			Metadata:   metadata.NewFS(config.MetadataDir),
+			Deps:       config.Deps,
+		}
+		path, err := client.GetFile(name, version)
 		if err != nil {
 			log.Fatalf("Error: %s", err)
 		}

@@ -1,62 +1,77 @@
 package sync
-
-import (
-	"bufio"
-	"io"
-	"sync"
-)
-
-type BufferPipe struct {
-	*bufio.Writer
-	io.Reader
-	io.Closer
-}
-
-func NewBufferPipe() *BufferPipe {
-	r, wc := io.Pipe()
-	return &BufferPipe{
-		Writer: bufio.NewWriter(wc),
-		Reader: r,
-		Closer: wc,
-	}
-}
-
-type Streamer struct {
-	out, err *BufferPipe
-}
-
-func NewStreamer() *Streamer {
-	return &Streamer{
-		out: NewBufferPipe(),
-		err: NewBufferPipe(),
-	}
-}
-
-func (l *Streamer) Writers() (out, err io.Writer) {
-	return l.out, l.err
-}
-
-func (l *Streamer) Stream(out, err io.Writer) {
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
-	go func() {
-		io.Copy(out, l.out)
-		wg.Done()
-	}()
-	go func() {
-		io.Copy(err, l.err)
-		wg.Done()
-	}()
-	wg.Wait()
-}
-
-func (l *Streamer) Flush() {
-	l.out.Flush()
-	l.err.Flush()
-}
-
-func (l *Streamer) Close() {
-	defer l.err.Close()
-	defer l.out.Close()
-	l.Flush()
-}
+//
+//import (
+//	"bufio"
+//	"io"
+//
+//	"golang.org/x/sync/errgroup"
+//)
+//
+//type BufferPipe struct {
+//	*bufio.Writer
+//	io.Reader
+//	io.Closer
+//}
+//
+//func NewBufferPipe() *BufferPipe {
+//	r, wc := io.Pipe()
+//	return &BufferPipe{
+//		Writer: bufio.NewWriter(wc),
+//		Reader: r,
+//		Closer: wc,
+//	}
+//}
+//
+//type Streamer struct {
+//	out, err *BufferPipe
+//}
+//
+//// FIXME: out/err order not guaranteed, fix this and drop useless Flush
+//func NewStreamer() *Streamer {
+//	return &Streamer{
+//		out: NewBufferPipe(),
+//		err: NewBufferPipe(),
+//	}
+//}
+//
+//func (l *Streamer) Out() io.Writer {
+//	return l.out
+//}
+//
+//func (l *Streamer) Err() io.Writer {
+//	return l.err
+//}
+//
+//func (l *Streamer) Stream(out, err io.Writer) error {
+//	g := errgroup.Group{}
+//	g.Go(func() error {
+//		_, err := io.Copy(out, l.out)
+//		return err
+//	})
+//	g.Go(func() error {
+//		_, err := io.Copy(err, l.err)
+//		return err
+//	})
+//	return g.Wait()
+//}
+//
+//func (l *Streamer) Flush() error {
+//	oErr := l.out.Flush()
+//	eErr := l.err.Flush()
+//	if oErr != nil {
+//		return oErr
+//	}
+//	return eErr
+//}
+//
+//func (l *Streamer) Close() error {
+//	if err := l.Flush(); err != nil {
+//		return err
+//	}
+//	oErr := l.out.Close()
+//	eErr := l.err.Close()
+//	if oErr != nil {
+//		return oErr
+//	}
+//	return eErr
+//}

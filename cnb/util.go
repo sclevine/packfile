@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/sclevine/packfile"
 )
 
 func writeTOML(lt interface{}, path string) error {
@@ -30,4 +32,11 @@ func eachDir(dir string, fn func(name string) error) error {
 		}
 	}
 	return nil
+}
+
+func shellOverride(exec packfile.Exec, shell string) packfile.Exec {
+	if exec.Shell == "" {
+		exec.Shell = shell
+	}
+	return exec
 }

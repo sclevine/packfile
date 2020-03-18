@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/sclevine/packfile"
+	"github.com/sclevine/packfile/exec"
 	"github.com/sclevine/packfile/layers"
 	"github.com/sclevine/packfile/metadata"
 	"github.com/sclevine/packfile/sync"
@@ -31,28 +32,39 @@ func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
 	var provides []planProvide
 	var linkLayers []layers.LinkLayer
 	for i := range pf.Layers {
-		lp := &pf.Layers[i]
-		if lp.Provide != nil || lp.Build != nil {
-			provides = append(provides, planProvide{Name: lp.Name})
+		layer := &pf.Layers[i]
+		if layer.Provide != nil || layer.Build != nil {
+			provides = append(provides, planProvide{Name: layer.Name})
 		}
-		if lp.Require == nil && lp.Build == nil {
+		if layer.Require == nil && layer.Build == nil {
 			continue
 		}
-		mdDir, err := ioutil.TempDir("", "packfile.md."+lp.Name)
+		mdDir, err := ioutil.TempDir("", "packfile.md."+layer.Name)
 		if err != nil {
 			return err
 		}
 		defer os.RemoveAll(mdDir)
-		linkLayers = append(linkLayers, &layers.Detect{
+		linkLayer := &layers.Detect{
 			Streamer: sync.NewStreamer(),
-			LinkShare: layers.LinkShare{
-				Metadata: metadata.NewFS(mdDir),
-			},
-			Layer:  lp,
-			Shell:  shell,
-			AppDir: appDir,
-			CtxDir: ctxDir,
-		})
+			Layer:    layer,
+			AppDir:   appDir,
+		}
+		if require := layer.Require; require != nil {
+			if require.Run != nil {
+				linkLayer.Metadata = metadata.NewMemory()
+				linkLayer.RequireRunner = require.Run
+			} else {
+				linkLayer.Metadata = metadata.NewFS(mdDir)
+				linkLayer.RequireRunner = &exec.Exec{
+					Exec:   shellOverride(require.Exec, shell),
+					Name:   layer.Name,
+					CtxDir: ctxDir,
+				}
+			}
+		} else {
+			linkLayer.Metadata = metadata.NewMemory()
+		}
+		linkLayers = append(linkLayers, linkLayer)
 	}
 	syncLayers := layers.LinkLayers(linkLayers)
 	for i := range syncLayers {

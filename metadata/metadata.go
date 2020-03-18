@@ -2,8 +2,15 @@ package metadata
 
 import "golang.org/x/xerrors"
 
-// Store ignores values that begin with '.' for ReadAll and DeleteAll
-type Store interface {
+var (
+	ErrNoKeys   = xerrors.New("no keys provided")
+	ErrNotValue = xerrors.New("not a value")
+	ErrNotKey   = xerrors.New("not a key")
+	ErrNotExist = xerrors.New("does not exist")
+)
+
+// Metadata ignores values that begin with '.' for ReadAll and DeleteAll
+type Metadata interface {
 	Read(keys ...string) (string, error)
 	ReadAll() (map[string]interface{}, error)
 
@@ -14,14 +21,5 @@ type Store interface {
 	// Write overrides values without returning an error unless one of keys already exists and is a value (ErrNotKey)
 	Write(value string, keys ...string) error
 	WriteAll(metadata map[string]interface{}) error
-
-	// Dir
-	Dir() string
 }
 
-var (
-	ErrNoKeys   = xerrors.New("no keys provided")
-	ErrNotValue = xerrors.New("not a value")
-	ErrNotKey   = xerrors.New("not a key")
-	ErrNotExist = xerrors.New("does not exist")
-)

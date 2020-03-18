@@ -20,28 +20,63 @@ import (
 	"github.com/sclevine/packfile/sync"
 )
 
-func Get(config *packfile.ConfigTOML, name, version string) (path string, err error) {
+type Client struct {
+	ContextDir string
+	StoreDir   string
+	Metadata   metadata.Metadata
+	Deps       []packfile.Dep
+}
+
+func (c *Client) Get(name, version string) io.ReadCloser {
+	r, w := io.Pipe()
+	go func() {
+		path, err := c.GetFile(name, version)
+		if err != nil {
+			w.CloseWithError(err)
+			return
+		}
+		defer os.Remove(path)
+		f, err := os.Open(path)
+		if err != nil {
+			w.CloseWithError(err)
+			return
+		}
+		defer f.Close()
+		if _, err := io.Copy(w, f); err != nil {
+			w.CloseWithError(err)
+			return
+		}
+	}()
+	return r
+}
+
+func (c *Client) GetFile(name, version string) (path string, err error) {
 	var dep packfile.Dep
-	for _, d := range config.Deps {
+	for _, d := range c.Deps {
 		if d.Name == name && (version == "" || d.Version == version) {
 			dep = d
 		}
 	}
 	name = fmt.Sprintf("%s@%s", dep.Name, dep.Version)
-	out := filepath.Join(config.ContextDir, "deps", name)
+
 	var sha string
+	out := filepath.Join(c.ContextDir, "deps", name)
 	if _, err := os.Stat(out); err != nil {
-		out = filepath.Join(config.StoreDir, name)
-		sha, err = download(dep.URI, out)
-		if err != nil {
-			return "", err
+		out = filepath.Join(c.StoreDir, name)
+		if _, err := os.Stat(out); err != nil {
+			sha, err = download(dep.URI, out)
+			if err != nil {
+				return "", err
+			}
 		}
-	} else {
+	}
+	if sha == "" {
 		sha, err = checksum(out)
 		if err != nil {
 			return "", err
 		}
 	}
+
 	if dep.SHA != "" && dep.SHA != sha {
 		return "", xerrors.Errorf("mismatched SHA (%s != %s)\n", sha, dep.SHA)
 	}
@@ -58,8 +93,7 @@ func Get(config *packfile.ConfigTOML, name, version string) (path string, err er
 	if len(dep.Metadata) > 0 {
 		md["metadata"] = dep.Metadata
 	}
-	store := metadata.NewFS(config.MetadataDir)
-	if err := store.WriteAll(map[string]interface{}{
+	if err := c.Metadata.WriteAll(map[string]interface{}{
 		"deps": map[string]interface{}{name: md},
 	}); err != nil {
 		return "", err

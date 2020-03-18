@@ -10,7 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-func NewFS(path string) Store {
+func NewFS(path string) Metadata {
 	return fsStore{path}
 }
 

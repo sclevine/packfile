@@ -41,6 +41,7 @@ type Cache struct {
 
 type Setup struct {
 	Exec
+	Run SetupRunner `toml:"-"`
 }
 
 type Layer struct {
@@ -55,18 +56,27 @@ type Layer struct {
 	Build    *Provide               `toml:"build"`
 }
 
+func (l *Layer) FindProvide() *Provide {
+	if l.Provide != nil {
+		return l.Provide
+	}
+	return l.Build
+}
+
 type Require struct {
 	Exec
+	Run RequireRunner `toml:"-"`
 }
 
 type Provide struct {
 	Exec
-	WriteApp bool   `toml:"write-app"`
-	Test     *Test  `toml:"test"`
-	Links    []Link `toml:"links"`
-	Deps     []Dep  `toml:"deps"`
-	Env      Envs   `toml:"env"`
-	Profile  []File `toml:"profile"`
+	Run      ProvideRunner `toml:"-"`
+	WriteApp bool          `toml:"write-app"`
+	Test     *Test         `toml:"test"`
+	Links    []Link        `toml:"links"`
+	Deps     []Dep         `toml:"deps"`
+	Env      Envs          `toml:"env"`
+	Profile  []File        `toml:"profile"`
 }
 
 type Exec struct {
@@ -77,7 +87,8 @@ type Exec struct {
 
 type Test struct {
 	Exec
-	FullEnv bool `toml:"full-env"`
+	Run     TestRunner `toml:"-"`
+	FullEnv bool       `toml:"full-env"`
 }
 
 type Link struct {

@@ -2,34 +2,30 @@ package layers
 
 import (
 	"errors"
-	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
+	"github.com/sclevine/packfile/exec"
 	"github.com/sclevine/packfile/metadata"
 	"github.com/sclevine/packfile/sync"
 )
 
 type Streamer interface {
-	Writers() (out, err io.Writer)
-	Stream(out, err io.Writer)
-	Flush()
-	Close()
+	Stdout() io.Writer
+	Stderr() io.Writer
+	Stream(out, err io.Writer) error
+	Close() error
 }
 
 type LinkLayer interface {
 	linker
 	sync.Runner
-	Stream(out, err io.Writer)
-	Close()
+	Stream(out, err io.Writer) error
+	Close() error
 }
 
 type linker interface {
@@ -41,7 +37,7 @@ type linker interface {
 
 type LinkShare struct {
 	LayerDir string
-	Metadata metadata.Store
+	Metadata metadata.Metadata
 	Err      error
 }
 
@@ -61,30 +57,8 @@ type linkerInfo struct {
 	app   bool
 }
 
-type CodeError int
-
-func (e CodeError) Error() string {
-	return fmt.Sprintf("failed with code %d", e)
-}
-
-func IsFail(err error) bool {
-	var e CodeError
-	if xerrors.As(err, &e) {
-		return e == 100
-	}
-	return false
-}
-
-func IsError(err error) bool {
-	var e CodeError
-	if xerrors.As(err, &e) {
-		return e != 100
-	}
-	return false
-}
-
-func writeLayerMetadata(store metadata.Store, layer *packfile.Layer) error {
-	if err := store.WriteAll(layer.Metadata); err != nil {
+func writeLayerMetadata(md metadata.Metadata, layer *packfile.Layer) error {
+	if err := md.WriteAll(layer.Metadata); err != nil {
 		return err
 	}
 	others := map[string]interface{}{}
@@ -97,52 +71,8 @@ func writeLayerMetadata(store metadata.Store, layer *packfile.Layer) error {
 	if layer.Expose {
 		others["build"] = "true"
 	}
-	return store.WriteAll(others)
+	return md.WriteAll(others)
 }
-
-// NOTE: implements UNIX exec-style shebang parsing for shell
-func execCmd(e *packfile.Exec, ctxDir, shell string) (*exec.Cmd, io.Closer, error) {
-	if e.Inline != "" && e.Path != "" {
-		return nil, nil, xerrors.New("both inline and path specified")
-	}
-	if e.Shell != "" {
-		shell = e.Shell
-	}
-	parts := strings.SplitN(shell, " ", 2)
-	if len(parts) == 0 {
-		return nil, nil, xerrors.New("missing shell")
-	}
-	var args []string
-	if len(parts) > 1 {
-		shell = parts[0]
-		args = append(args, parts[1])
-	}
-	if e.Inline != "" {
-		f, err := ioutil.TempFile("", "packfile.")
-		if err != nil {
-			return nil, nil, err
-		}
-		defer f.Close()
-		if _, err := f.WriteString(e.Inline); err != nil {
-			return nil, nil, err
-		}
-		return exec.Command(shell, append(args, f.Name())...), rmCloser{f.Name()}, nil
-	}
-
-	if e.Path == "" {
-		return nil, nil, xerrors.New("missing executable")
-	}
-
-	return exec.Command(shell, append(args, filepath.Join(ctxDir, e.Path))...), nopCloser{}, nil
-}
-
-type rmCloser struct{ path string }
-
-func (c rmCloser) Close() error { return os.Remove(c.path) }
-
-type nopCloser struct{}
-
-func (nopCloser) Close() error { return nil }
 
 func LinkLayers(layers []LinkLayer) []*sync.Layer {
 	lock := sync.NewLock(len(layers))
@@ -177,7 +107,7 @@ func ReadRequires(layers []LinkLayer) ([]Require, error) {
 	var requires []Require
 	for _, layer := range layers {
 		info := layer.info()
-		if IsFail(info.share.Err) {
+		if exec.IsFail(info.share.Err) {
 			continue
 		} else if info.share.Err != nil {
 			return nil, xerrors.Errorf("error for layer '%s': %w", info.name, info.share.Err)
@@ -194,10 +124,10 @@ func ReadRequires(layers []LinkLayer) ([]Require, error) {
 	return requires, nil
 }
 
-func readRequire(name string, metadata metadata.Store) (Require, error) {
+func readRequire(name string, md metadata.Metadata) (Require, error) {
 	out := Require{Name: name}
 	var err error
-	if out.Metadata, err = metadata.ReadAll(); err != nil {
+	if out.Metadata, err = md.ReadAll(); err != nil {
 		return Require{}, err
 	}
 	if v, ok := out.Metadata["version"]; ok {

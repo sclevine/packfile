@@ -4,8 +4,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
-	"os/exec"
-	"syscall"
 
 	"golang.org/x/xerrors"
 
@@ -16,10 +14,9 @@ import (
 type Cache struct {
 	Streamer
 	LinkShare
-	Cache  *packfile.Cache
-	Shell  string
-	AppDir string
-	CtxDir string
+	Cache       *packfile.Cache
+	SetupRunner packfile.SetupRunner
+	AppDir      string
 }
 
 func (l *Cache) info() linkerInfo {
@@ -77,55 +74,40 @@ func (l *Cache) Run() {
 	if l.Err != nil {
 		return
 	}
-	w, _ := l.Streamer.Writers()
-	fmt.Fprintf(w, "Setting up cache '%s'.\n", l.Cache.Name)
-	l.Flush()
 	if err := os.RemoveAll(l.LayerDir); err != nil {
 		l.Err = err
 		return
 	}
-
-	env := os.Environ()
-	env = append(env, "APP="+l.AppDir, "CACHE="+l.LayerDir)
-
 	if err := os.MkdirAll(l.LayerDir, 0777); err != nil {
 		l.Err = err
 		return
 	}
-	if l.Cache.Setup == nil {
+	if l.SetupRunner == nil {
 		return
 	}
-	cmd, c, err := execCmd(&l.Cache.Setup.Exec, l.CtxDir, l.Shell)
-	if err != nil {
+	fmt.Fprintf(l.Stdout(), "Setting up cache '%s'.\n", l.Cache.Name)
+	env := packfile.NewEnvMap(os.Environ())
+	env["APP"] = l.AppDir
+	env["CACHE"] = l.LayerDir
+	if err := l.SetupRunner.Setup(l.Streamer, env); err != nil {
 		l.Err = err
 		return
 	}
-	defer c.Close()
-	cmd.Dir = l.AppDir
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = l.Writers()
-	if err := cmd.Run(); err != nil {
-		if err, ok := err.(*exec.ExitError); ok {
-			if status, ok := err.Sys().(syscall.WaitStatus); ok {
-				l.Err = CodeError(status.ExitStatus())
-				return
-			}
-		}
-		l.Err = err
-		return
-	}
-	l.Flush()
-	fmt.Fprintf(w, "Setup cache '%s'.\n", l.Cache.Name)
+	fmt.Fprintf(l.Stdout(), "Setup cache '%s'.\n", l.Cache.Name)
 }
 
-func (l *Cache) Skip() {}
+func (l *Cache) Skip() {
+	if l.Err != nil {
+		return
+	}
+	fmt.Fprintf(l.Stdout(), "Using existing cache '%s'.\n", l.Cache.Name)
+}
 
 func (l *Cache) digest() string {
 	hash := sha256.New()
 	writeField(hash, "cache")
-	if l.Cache.Setup != nil {
-		writeField(hash, l.Cache.Setup.Shell, l.Cache.Setup.Inline)
-		writeFile(hash, l.Cache.Setup.Path)
+	if l.SetupRunner != nil {
+		writeField(hash, l.SetupRunner.Version())
 	}
 	return fmt.Sprintf("%x", hash.Sum(nil))
 }
