@@ -1,0 +1,46 @@
+api: 0.2
+
+config:
+  id: sh.scl.npm
+  version: 0.0.0
+  name: NPM Packfile
+
+processes:
+  - type: web
+    command: npm start
+
+caches:
+  - name: npm-cache
+
+layers:
+  - name: nodejs
+    expose: true
+    export: true
+    require:
+      inline: |
+        jq -r .engines.node package.json > "$MD/version"
+  - name: modules
+    export: true
+    build:
+      env:
+        launch:
+          - name: NODE_PATH
+            value: "{{.Layer}}/node_modules"
+        build:
+          - name: NODE_PATH
+            value: "{{.Layer}}/node_modules"
+      test:
+        inline: |
+          sha=$(md5sum package-lock.json | cut -d' ' -f1)
+          echo "$sha-$(node -v)" > "$MD/version"
+      inline: |
+        npm ci --unsafe-perm --cache "$NPM_CACHE"
+        mv node_modules "$LAYER/"
+      links:
+        - name: npm-cache
+          pathAs: NPM_CACHE
+
+stacks:
+  - id: io.buildpacks.stacks.bionic
+  - id: org.cloudfoundry.stacks.cflinuxfs3
+  - id: org.cloudfoundry.stacks.tiny

@@ -16,5 +16,13 @@ echo "Building pf buildpack..."
 out/pf -o out/pf.tgz
 
 echo "Building testdata..."
-out/pf -i testdata/node -o testout/node.tgz
-out/pf -i testdata/npm -o testout/npm.tgz
+CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w -X 'main.BuildID=$(date)'" -o testout/node-go ./testdata/node-go
+CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w -X 'main.BuildID=$(date)'" -o testout/npm-go ./testdata/npm-go
+
+out/pf -i testdata/node-toml -o testout/node-toml.tgz
+out/pf -i testdata/node-yaml -o testout/node-yaml.tgz
+out/pf -p testout/node-go -i testdata/node-go/packfile.toml -o testout/node-go.tgz
+
+out/pf -i testdata/npm-toml -o testout/npm-toml.tgz
+out/pf -i testdata/npm-yaml -o testout/npm-yaml.tgz
+out/pf -p testout/npm-go -i testdata/npm-go/packfile.toml -o testout/npm-go.tgz

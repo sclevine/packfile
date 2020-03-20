@@ -23,7 +23,9 @@ func (fs fsStore) Read(keys ...string) (string, error) {
 		return "", ErrNoKeys
 	}
 	value, err := ioutil.ReadFile(fs.keyPath(keys...))
-	if err != nil {
+	if os.IsNotExist(err) {
+		return "", ErrNotExist
+	} else if err != nil {
 		return "", err
 	}
 	return strings.TrimSuffix(string(value), "\n"), nil

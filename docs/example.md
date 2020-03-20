@@ -101,24 +101,19 @@ name = "nodejs"
 export = true
 store = true
 
-[layers.require]
+[layers.build.test]
 inline = """
-jq -r .engines.node package.json > "$MD/version"
-"""
-
-[layers.provide.test]
-inline = """
-version=$(cat "$MD/version")
+version=$(jq -r .engines.node package.json)
 url=https://semver.io/node/resolve/${version:-*}
 echo v$(wget -q -O - "$url") > "$MD/version"
 """
 
-[[layers.provide.deps]]
+[[layers.build.deps]]
 name = "node"
 version = "{{.version}}"
 uri = "https://nodejs.org/dist/{{.version}}/node-{{.version}}-linux-x64.tar.xz"
 
-[layers.provide]
+[layers.build]
 inline = """
 tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 """
@@ -128,6 +123,10 @@ name = "modules"
 export = true
 
 [[layers.build.env.launch]]
+name = "NODE_PATH"
+value = "{{.Layer}}/node_modules"
+
+[[layers.build.env.build]]
 name = "NODE_PATH"
 value = "{{.Layer}}/node_modules"
 

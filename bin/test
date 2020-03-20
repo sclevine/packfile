@@ -4,5 +4,7 @@ set -e
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-pack build pack-app-split --path testdata/app --buildpack testout/node.tgz --buildpack testout/npm.tgz --builder cloudfoundry/cnb:full -v --clear-cache
 pack build pack-app --path testdata/app --buildpack out/pf.tgz --builder cloudfoundry/cnb:full -v --clear-cache
+pack build pack-app-toml --path testdata/app --buildpack testout/node-toml.tgz --buildpack testout/npm-toml.tgz --builder cloudfoundry/cnb:full -v --clear-cache
+pack build pack-app-yaml --path testdata/app --buildpack testout/node-yaml.tgz --buildpack testout/npm-yaml.tgz --builder cloudfoundry/cnb:full -v --clear-cache
+pack build pack-app-go --path testdata/app --buildpack testout/node-go.tgz --buildpack testout/npm-go.tgz --builder cloudfoundry/cnb:base -v --clear-cache

@@ -3,57 +3,58 @@ package packfile
 const DefaultShell = "/usr/bin/env bash"
 
 type Packfile struct {
-	Config    Config    `toml:"config"`
-	Processes []Process `toml:"processes"`
-	Caches    []Cache   `toml:"caches"`
-	Layers    []Layer   `toml:"layers"`
-	Slices    []Slice   `toml:"slices"`
-	Stacks    []Stack   `toml:"stacks"`
+	API       string    `toml:"api" yaml:"api"`
+	Config    Config    `toml:"config" yaml:"config"`
+	Processes []Process `toml:"processes" yaml:"processes"`
+	Caches    []Cache   `toml:"caches" yaml:"caches"`
+	Layers    []Layer   `toml:"layers" yaml:"layers"`
+	Slices    []Slice   `toml:"slices" yaml:"slices"`
+	Stacks    []Stack   `toml:"stacks" yaml:"stacks"`
 }
 
 type Config struct {
-	ID      string `toml:"id"`
-	Version string `toml:"version"`
-	Name    string `toml:"name"`
-	Shell   string `toml:"shell"`
+	ID      string `toml:"id" yaml:"id"`
+	Version string `toml:"version" yaml:"version"`
+	Name    string `toml:"name" yaml:"name"`
+	Shell   string `toml:"shell" yaml:"shell"`
 }
 
 type Process struct {
-	Type    string   `toml:"type"`
-	Command string   `toml:"command"`
-	Args    []string `toml:"args"`
-	Direct  bool     `toml:"direct"`
+	Type    string   `toml:"type" yaml:"type"`
+	Command string   `toml:"command" yaml:"command"`
+	Args    []string `toml:"args" yaml:"args"`
+	Direct  bool     `toml:"direct" yaml:"direct"`
 }
 
 type Slice struct {
-	Paths []string `toml:"paths"`
+	Paths []string `toml:"paths" yaml:"paths"`
 }
 
 type Stack struct {
-	ID     string   `toml:"id"`
-	Mixins []string `toml:"mixins,omitempty"`
+	ID     string   `toml:"id" yaml:"id"`
+	Mixins []string `toml:"mixins,omitempty" yaml:"mixins,omitempty"`
 }
 
 type Cache struct {
-	Name  string `toml:"name"`
-	Setup *Setup `toml:"setup"`
+	Name  string `toml:"name" yaml:"name"`
+	Setup *Setup `toml:"setup" yaml:"setup"`
 }
 
 type Setup struct {
-	Exec
-	Run SetupRunner `toml:"-"`
+	Exec `yaml:",inline"`
+	Run  SetupRunner `toml:"-" yaml:"-"`
 }
 
 type Layer struct {
-	Name     string                 `toml:"name"`
-	Export   bool                   `toml:"export"`
-	Expose   bool                   `toml:"expose"`
-	Store    bool                   `toml:"store"`
-	Version  string                 `toml:"version"`
-	Metadata map[string]interface{} `toml:"metadata"`
-	Require  *Require               `toml:"require"`
-	Provide  *Provide               `toml:"provide"`
-	Build    *Provide               `toml:"build"`
+	Name     string                 `toml:"name" yaml:"name"`
+	Export   bool                   `toml:"export" yaml:"export"`
+	Expose   bool                   `toml:"expose" yaml:"expose"`
+	Store    bool                   `toml:"store" yaml:"store"`
+	Version  string                 `toml:"version" yaml:"version"`
+	Metadata map[string]interface{} `toml:"metadata" yaml:"metadata"`
+	Require  *Require               `toml:"require" yaml:"require"`
+	Provide  *Provide               `toml:"provide" yaml:"provide"`
+	Build    *Provide               `toml:"build" yaml:"build"`
 }
 
 func (l *Layer) FindProvide() *Provide {
@@ -64,70 +65,70 @@ func (l *Layer) FindProvide() *Provide {
 }
 
 type Require struct {
-	Exec
-	Run RequireRunner `toml:"-"`
+	Exec `yaml:",inline"`
+	Run  RequireRunner `toml:"-" yaml:"-"`
 }
 
 type Provide struct {
-	Exec
-	Run      ProvideRunner `toml:"-"`
-	WriteApp bool          `toml:"write-app"`
-	Test     *Test         `toml:"test"`
-	Links    []Link        `toml:"links"`
-	Deps     []Dep         `toml:"deps"`
-	Env      Envs          `toml:"env"`
-	Profile  []File        `toml:"profile"`
+	Exec     `yaml:",inline"`
+	Run      ProvideRunner `toml:"-" yaml:"-"`
+	WriteApp bool          `toml:"write-app" yaml:"writeApp"`
+	Test     *Test         `toml:"test" yaml:"test"`
+	Links    []Link        `toml:"links" yaml:"links"`
+	Deps     []Dep         `toml:"deps" yaml:"deps"`
+	Env      Envs          `toml:"env" yaml:"env"`
+	Profile  []File        `toml:"profile" yaml:"profile"`
 }
 
 type Exec struct {
-	Shell  string `toml:"shell"`
-	Inline string `toml:"inline"`
-	Path   string `toml:"path"`
+	Shell  string `toml:"shell" yaml:"shell"`
+	Inline string `toml:"inline" yaml:"inline"`
+	Path   string `toml:"path" yaml:"path"`
 }
 
 type Test struct {
-	Exec
-	Run     TestRunner `toml:"-"`
-	FullEnv bool       `toml:"full-env"`
+	Exec    `yaml:",inline"`
+	Run     TestRunner `toml:"-" yaml:"-"`
+	FullEnv bool       `toml:"full-env" yaml:"fullEnv"`
 }
 
 type Link struct {
-	Name        string `toml:"name"`
-	PathEnv     string `toml:"path-as"`
-	VersionEnv  string `toml:"version-as"`
-	MetadataEnv string `toml:"metadata-as"`
-	LinkContent bool   `toml:"link-content"`
-	LinkVersion bool   `toml:"link-version"`
+	Name        string `toml:"name" yaml:"name"`
+	PathEnv     string `toml:"path-as" yaml:"pathAs"`
+	VersionEnv  string `toml:"version-as" yaml:"versionAs"`
+	MetadataEnv string `toml:"metadata-as" yaml:"metadataAs"`
+	LinkContent bool   `toml:"link-content" yaml:"linkContent"`
+	LinkVersion bool   `toml:"link-version" yaml:"linkVersion"`
 }
 
 type Dep struct {
-	Name     string                 `toml:"name"`
-	Version  string                 `toml:"version"`
-	URI      string                 `toml:"uri"`
-	SHA      string                 `toml:"sha"`
-	Metadata map[string]interface{} `toml:"metadata"`
+	Name     string                 `toml:"name" yaml:"name"`
+	Version  string                 `toml:"version" yaml:"version"`
+	URI      string                 `toml:"uri" yaml:"uri"`
+	SHA      string                 `toml:"sha" yaml:"sha"`
+	Metadata map[string]interface{} `toml:"metadata" yaml:"metadata"`
 }
 
 type Envs struct {
-	Build  []Env `toml:"build"`
-	Launch []Env `toml:"launch"`
+	Build  []Env `toml:"build" yaml:"build"`
+	Launch []Env `toml:"launch" yaml:"launch"`
 }
 
 type Env struct {
-	Name  string `toml:"name"`
-	Value string `toml:"value"`
-	Op    string `toml:"op"`
-	Delim string `toml:"delim"`
+	Name  string `toml:"name" yaml:"name"`
+	Value string `toml:"value" yaml:"value"`
+	Op    string `toml:"op" yaml:"op"`
+	Delim string `toml:"delim" yaml:"delim"`
 }
 
 type File struct {
-	Inline string `toml:"inline"`
-	Path   string `toml:"path"`
+	Inline string `toml:"inline" yaml:"inline"`
+	Path   string `toml:"path" yaml:"path"`
 }
 
 type ConfigTOML struct {
-	ContextDir  string `toml:"context-dir"`
-	StoreDir    string `toml:"store-dir"`
-	MetadataDir string `toml:"metadata-dir"`
-	Deps        []Dep  `toml:"deps"`
+	ContextDir  string `toml:"context-dir" yaml:"contextDir"`
+	StoreDir    string `toml:"store-dir" yaml:"storeDir"`
+	MetadataDir string `toml:"metadata-dir" yaml:"metadataDir"`
+	Deps        []Dep  `toml:"deps" yaml:"deps"`
 }

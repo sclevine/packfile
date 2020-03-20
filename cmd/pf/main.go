@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
+	"golang.org/x/xerrors"
+	"gopkg.in/yaml.v2"
 
 	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/cnb"
@@ -85,21 +87,34 @@ func main() {
 	}
 }
 
-func findPackfile(command string) (pf packfile.Packfile, dir string) {
-	dir = filepath.Dir(filepath.Dir(command))
-	if _, err := os.Stat(filepath.Join(dir, "packfile.toml")); os.IsNotExist(err) {
-		dir = "."
+func getPackfile(dir string) (pf packfile.Packfile, err error) {
+	if _, err = toml.DecodeFile(filepath.Join(dir, "packfile.toml"), &pf); os.IsNotExist(err) {
+		if err = yamlDecode(filepath.Join(dir, "packfile.yaml"), &pf); os.IsNotExist(err) {
+			err = os.ErrNotExist
+		}
 	}
-	if _, err := toml.DecodeFile(filepath.Join(dir, "packfile.toml"), &pf); err != nil {
+	return
+}
+func findPackfile(command string) (packfile.Packfile, string) {
+	cmdDir := filepath.Dir(filepath.Dir(command))
+	if pf, err := getPackfile(cmdDir); err == nil {
+		return pf, cmdDir
+	} else if !os.IsNotExist(err) {
 		log.Fatalf("Error: %s", err)
 	}
-	return pf, dir
+	if pf, err := getPackfile("."); err == nil {
+		return pf, "."
+	} else if !os.IsNotExist(err) {
+		log.Fatalf("Error: %s", err)
+	}
+	log.Fatal("Error: packfile not found")
+	return packfile.Packfile{}, ""
 }
 
 type buildpackTOML struct {
-	API       string        `toml:"api"`
-	Buildpack buildpackInfo `toml:"buildpack"`
-	Stacks    []packfile.Stack   `toml:"stacks"`
+	API       string           `toml:"api"`
+	Buildpack buildpackInfo    `toml:"buildpack"`
+	Stacks    []packfile.Stack `toml:"stacks"`
 }
 
 type buildpackInfo struct {
@@ -122,6 +137,31 @@ var packfileBuildpack = buildpackTOML{
 	},
 }
 
+func getBuildpackTOML(pf *packfile.Packfile) buildpackTOML {
+	out := packfileBuildpack
+	if pf.API != "" {
+		out.API = pf.API
+	}
+	if len(pf.Stacks) != 0 {
+		out.Stacks = pf.Stacks
+	}
+	out.Buildpack = buildpackInfo{
+		ID:      pf.Config.ID,
+		Version: pf.Config.Version,
+		Name:    pf.Config.Name,
+	}
+	return out
+}
+
+func yamlDecode(path string, v interface{}) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return yaml.NewDecoder(f).Decode(v)
+}
+
 func writeBuildpack(dst, src, path string) error {
 	tempDir, err := ioutil.TempDir("", "packfile")
 	if err != nil {
@@ -130,19 +170,37 @@ func writeBuildpack(dst, src, path string) error {
 	defer os.RemoveAll(tempDir)
 
 	bpTOML := packfileBuildpack
-	var pf packfile.Packfile
-	if _, err := toml.DecodeFile(filepath.Join(src, "packfile.toml"), &pf); err == nil {
-		bpTOML = buildpackTOML{
-			API: "0.2",
-			Buildpack: buildpackInfo{
-				ID:      pf.Config.ID,
-				Version: pf.Config.Version,
-				Name:    pf.Config.Name,
-			},
-			Stacks: pf.Stacks,
+	var include string
+	if src != "" {
+		var pf packfile.Packfile
+		fi, err := os.Stat(src)
+		if err != nil {
+			return err
 		}
-	} else if !os.IsNotExist(err) {
-		return err
+		if !fi.IsDir() {
+			switch filepath.Base(src) {
+			case "packfile.toml":
+				if _, err := toml.DecodeFile(src, &pf); err != nil {
+					return err
+				}
+			case "packfile.yaml":
+				if err := yamlDecode(src, &pf); err != nil {
+					return err
+				}
+			default:
+				return xerrors.New("input must be named packfile.{toml,yaml}")
+			}
+			include = filepath.Base(src)
+			src = filepath.Dir(src)
+		} else {
+			if pf, err = getPackfile(src); os.IsNotExist(err) {
+				return xerrors.New("packfile not found")
+			} else if err != nil {
+				return err
+			}
+			include = "."
+		}
+		bpTOML = getBuildpackTOML(&pf)
 	}
 	if err := writeTOML(filepath.Join(tempDir, "buildpack.toml"), bpTOML); err != nil {
 		return err
@@ -182,7 +240,7 @@ func writeBuildpack(dst, src, path string) error {
 	}
 	args := []string{"-czf", dst}
 	if src != "" {
-		args = append(args, "-C", src, ".")
+		args = append(args, "-C", src, include)
 	}
 	args = append(args, "-C", tempDir, "./pf", "./bin", "./.bin", "./buildpack.toml")
 	return exec.Command("tar", args...).Run()

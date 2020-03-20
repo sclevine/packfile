@@ -84,6 +84,6 @@ SOLUTION: all build layers must move together, so use UUID in store.toml + build
 Rebuilds on: provide exec change, deps field changes, profile changes, env build/launch changes, link as- changes
 
 TODO:
-- go library with metadata abstraction
 - tests
 - serial mode
+- code change currently implies version change, determine if that makes sense

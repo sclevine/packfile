@@ -458,6 +458,9 @@ func (l *Build) setupEnvs(env packfile.EnvMap) error {
 }
 
 func setupEnvDir(env []packfile.Env, path string, vars interface{}) error {
+	if len(env) == 0 {
+		return nil
+	}
 	if err := os.Mkdir(path, 0777); err != nil {
 		return err
 	}
@@ -501,6 +504,9 @@ func interpolate(text string, vars interface{}) (string, error) {
 
 func (l *Build) setupProfile() error {
 	profiles := l.provide().Profile
+	if len(profiles) == 0 {
+		return nil
+	}
 	pad := padNum(len(profiles))
 	profiled := filepath.Join(l.LayerDir, "profile.d")
 	if err := os.Mkdir(profiled, 0777); err != nil {

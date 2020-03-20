@@ -1,0 +1,27 @@
+api: 0.2
+
+config:
+  id: sh.scl.node-engine
+  version: 0.0.0
+  name: Node Engine Packfile
+
+layers:
+  - name: nodejs
+    store: true
+    provide:
+      test:
+        inline: |
+          version=$(cat "$MD/version")
+          url=https://semver.io/node/resolve/${version:-*}
+          echo v$(wget -q -O - "$url") > "$MD/version"
+      deps:
+        - name: node
+          version: "{{.version}}"
+          uri: https://nodejs.org/dist/{{.version}}/node-{{.version}}-linux-x64.tar.xz
+      inline: |
+        tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
+
+stacks:
+  - id: io.buildpacks.stacks.bionic
+  - id: org.cloudfoundry.stacks.cflinuxfs3
+  - id: org.cloudfoundry.stacks.tiny
