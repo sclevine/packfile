@@ -17,12 +17,6 @@ import (
 var BuildID string
 
 var buildpack = &packfile.Packfile{
-	API: "0.2",
-	Config: packfile.Config{
-		ID:      "sh.scl.npm",
-		Version: "0.0.0",
-		Name:    "NPM Packfile",
-	},
 	Caches: []packfile.Cache{
 		{Name: "npm-cache"},
 	},

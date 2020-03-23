@@ -16,12 +16,6 @@ import (
 var BuildID string
 
 var buildpack = &packfile.Packfile{
-	API: "0.2",
-	Config: packfile.Config{
-		ID:      "sh.scl.node-engine",
-		Version: "0.0.0",
-		Name:    "Node Engine Packfile",
-	},
 	Layers: []packfile.Layer{
 		{
 			Name:  "nodejs",
