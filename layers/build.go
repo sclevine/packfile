@@ -267,8 +267,7 @@ func (l *Build) Test() (exists, matched bool) {
 
 	if cachedBuildID != l.LastBuildID ||
 		newDigest != oldDigest ||
-		l.provide().WriteApp ||
-		l.provide().Test == nil {
+		l.provide().WriteApp {
 		return false, false
 	}
 	if newVersion != "" && newVersion == oldVersion {

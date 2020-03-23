@@ -33,8 +33,6 @@ a layer with no require or require has code 100 does not require a layer, but ma
 
 a layer with a missing version is always considered a mismatch
 
-a layer with missing test code is always considered a mismatch
-
 $MD accessible during require/provide.test/provide
 
 eventually use two layers for cache/store+export?
