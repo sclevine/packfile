@@ -32,6 +32,8 @@ type Build struct {
 	LastBuildID   string
 	links         []linkInfo
 	syncs         []sync.Link
+	finalEnvs     packfile.Envs
+	finalDeps     []packfile.Dep
 }
 
 func (l *Build) info() linkerInfo {
@@ -93,6 +95,77 @@ func (l *Build) forward(targets []linker, syncs []*sync.Layer) {
 			}
 		}
 	}
+}
+
+func (l *Build) envs() (packfile.Envs, error) {
+	if len(l.finalEnvs.Build) == len(l.provide().Env.Build) &&
+		len(l.finalEnvs.Launch) == len(l.provide().Env.Launch) {
+		return l.finalEnvs, nil
+	}
+	out := packfile.Envs{}
+	vars := struct {
+		Layer string
+		App   string
+	}{l.LayerDir, l.AppDir}
+	for _, e := range l.provide().Env.Build {
+		var err error
+		e.Value, err = interpolate(e.Value, vars)
+		if err != nil {
+			return out, err
+		}
+		out.Build = append(out.Build, e)
+	}
+	for _, e := range l.provide().Env.Launch {
+		var err error
+		e.Value, err = interpolate(e.Value, vars)
+		if err != nil {
+			return out, err
+		}
+		out.Launch = append(out.Launch, e)
+	}
+	l.finalEnvs = out
+	return out, nil
+}
+
+// NOTE: must be called after metadata is hydrated
+func (l *Build) deps() ([]packfile.Dep, error) {
+	if len(l.finalDeps) == len(l.provide().Deps) {
+		return l.finalDeps, nil
+	}
+	vars, err := l.Metadata.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	var deps []packfile.Dep
+	for _, dep := range l.provide().Deps {
+		if dep.Name, err = interpolate(dep.Name, vars); err != nil {
+			return nil, err
+		}
+		if dep.Version, err = interpolate(dep.Version, vars); err != nil {
+			return nil, err
+		}
+		if dep.URI, err = interpolate(dep.URI, vars); err != nil {
+			return nil, err
+		}
+		if dep.SHA, err = interpolate(dep.SHA, vars); err != nil {
+			return nil, err
+		}
+		deps = append(deps, dep)
+	}
+	l.finalDeps = deps
+	return deps, nil
+}
+
+func interpolate(text string, vars interface{}) (string, error) {
+	tmpl, err := template.New("vars").Parse(text)
+	if err != nil {
+		return "", err
+	}
+	out := &bytes.Buffer{}
+	if err := tmpl.Execute(out, vars); err != nil {
+		return "", err
+	}
+	return out.String(), nil
 }
 
 func (l *Build) Links() (links []sync.Link, forTest bool) {
@@ -330,7 +403,7 @@ func (l *Build) Run() {
 		l.Err = err
 		return
 	}
-	deps, err := l.getDeps()
+	deps, err := l.deps()
 	if err != nil {
 		l.Err = err
 		return
@@ -398,18 +471,22 @@ func (l *Build) digest() string {
 
 	writeField(hash, l.ProvideRunner.Version())
 
-	for _, dep := range l.provide().Deps {
-		writeField(hash, dep.Name, dep.Version, dep.URI, dep.SHA, dep.Metadata)
+	if deps, err := l.deps(); err == nil {
+		for _, dep := range deps {
+			writeField(hash, dep.Name, dep.Version, dep.URI, dep.SHA, dep.Metadata)
+		}
 	}
 	for _, file := range l.provide().Profile {
 		writeField(hash, file.Inline)
 		writeFile(hash, file.Path)
 	}
-	for _, env := range l.provide().Env.Launch {
-		writeField(hash, env.Name, env.Value, env.Op, env.Delim)
-	}
-	for _, env := range l.provide().Env.Build {
-		writeField(hash, env.Name, env.Value, env.Op, env.Delim)
+	if envs, err := l.envs(); err == nil {
+		for _, env := range envs.Launch {
+			writeField(hash, env.Name, env.Value, env.Op, env.Delim)
+		}
+		for _, env := range envs.Build {
+			writeField(hash, env.Name, env.Value, env.Op, env.Delim)
+		}
 	}
 	for _, link := range l.provide().Links {
 		writeField(hash, link.Name, link.PathEnv, link.VersionEnv, link.MetadataEnv)
@@ -436,7 +513,10 @@ func writeFile(out io.Writer, path string) {
 }
 
 func (l *Build) setupEnvs(env packfile.EnvMap) error {
-	envs := l.provide().Env
+	envs, err := l.envs()
+	if err != nil {
+		return err
+	}
 	envBuild := filepath.Join(l.LayerDir, "env.build")
 	envLaunch := filepath.Join(l.LayerDir, "env.launch")
 	vars := struct {
@@ -468,11 +548,6 @@ func setupEnvDir(env []packfile.Env, path string, vars interface{}) error {
 		if e.Op == "" {
 			e.Op = "override"
 		}
-		var err error
-		e.Value, err = interpolate(e.Value, vars)
-		if err != nil {
-			return err
-		}
 		path := filepath.Join(path, e.Name+"."+e.Op)
 		if err := ioutil.WriteFile(path, []byte(e.Value), 0777); err != nil {
 			return err
@@ -485,18 +560,6 @@ func setupEnvDir(env []packfile.Env, path string, vars interface{}) error {
 		}
 	}
 	return nil
-}
-
-func interpolate(text string, vars interface{}) (string, error) {
-	tmpl, err := template.New("vars").Parse(text)
-	if err != nil {
-		return "", err
-	}
-	out := &bytes.Buffer{}
-	if err := tmpl.Execute(out, vars); err != nil {
-		return "", err
-	}
-	return out.String(), nil
 }
 
 func (l *Build) setupProfile() error {
@@ -547,30 +610,6 @@ func copyFileContents(dst, src string) error {
 		return err
 	}
 	return out.Close()
-}
-
-func (l *Build) getDeps() ([]packfile.Dep, error) {
-	vars, err := l.Metadata.ReadAll()
-	if err != nil {
-		return nil, err
-	}
-	var deps []packfile.Dep
-	for _, dep := range l.provide().Deps {
-		if dep.Name, err = interpolate(dep.Name, vars); err != nil {
-			return nil, err
-		}
-		if dep.Version, err = interpolate(dep.Version, vars); err != nil {
-			return nil, err
-		}
-		if dep.URI, err = interpolate(dep.URI, vars); err != nil {
-			return nil, err
-		}
-		if dep.SHA, err = interpolate(dep.SHA, vars); err != nil {
-			return nil, err
-		}
-		deps = append(deps, dep)
-	}
-	return deps, nil
 }
 
 type layerTOML struct {
@@ -630,5 +669,3 @@ func (m metadataMap) Dir() string {
 func newMetadataMap(md metadata.Metadata) metadataMap {
 	return metadataMap{md, map[string]metadata.Metadata{}}
 }
-
-
