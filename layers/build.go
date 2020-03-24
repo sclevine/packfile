@@ -267,16 +267,14 @@ func (l *Build) Test() (exists, matched bool) {
 
 	if cachedBuildID != l.LastBuildID ||
 		newDigest != oldDigest ||
+		newVersion != oldVersion ||
 		l.provide().WriteApp {
 		return false, false
 	}
-	if newVersion != "" && newVersion == oldVersion {
-		if _, err := os.Stat(l.LayerDir); xerrors.Is(err, os.ErrNotExist) {
-			return false, !l.Layer.Expose && !l.Layer.Store
-		}
-		return true, true
+	if _, err := os.Stat(l.LayerDir); xerrors.Is(err, os.ErrNotExist) {
+		return false, !l.Layer.Expose && !l.Layer.Store
 	}
-	return false, false
+	return true, true
 }
 
 func mdToBool(s string, err error) bool {

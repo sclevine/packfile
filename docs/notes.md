@@ -31,7 +31,7 @@ export/expose flags on these layers override previous actual layer definitions
 
 a layer with no require or require has code 100 does not require a layer, but may provide it
 
-a layer with a missing version is always considered a mismatch
+a layer with a missing version is not rebuilt (unless the code changes)
 
 $MD accessible during require/provide.test/provide
 
