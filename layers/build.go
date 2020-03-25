@@ -32,8 +32,6 @@ type Build struct {
 	LastBuildID   string
 	links         []linkInfo
 	syncs         []sync.Link
-	finalEnvs     packfile.Envs
-	finalDeps     []packfile.Dep
 }
 
 func (l *Build) info() linkerInfo {
@@ -98,10 +96,6 @@ func (l *Build) forward(targets []linker, syncs []*sync.Layer) {
 }
 
 func (l *Build) envs() (packfile.Envs, error) {
-	if len(l.finalEnvs.Build) == len(l.provide().Env.Build) &&
-		len(l.finalEnvs.Launch) == len(l.provide().Env.Launch) {
-		return l.finalEnvs, nil
-	}
 	out := packfile.Envs{}
 	vars := struct {
 		Layer string
@@ -123,15 +117,10 @@ func (l *Build) envs() (packfile.Envs, error) {
 		}
 		out.Launch = append(out.Launch, e)
 	}
-	l.finalEnvs = out
 	return out, nil
 }
 
-// NOTE: must be called after metadata is hydrated
 func (l *Build) deps() ([]packfile.Dep, error) {
-	if len(l.finalDeps) == len(l.provide().Deps) {
-		return l.finalDeps, nil
-	}
 	vars, err := l.Metadata.ReadAll()
 	if err != nil {
 		return nil, err
@@ -152,7 +141,6 @@ func (l *Build) deps() ([]packfile.Dep, error) {
 		}
 		deps = append(deps, dep)
 	}
-	l.finalDeps = deps
 	return deps, nil
 }
 
