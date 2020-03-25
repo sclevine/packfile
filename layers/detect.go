@@ -4,31 +4,32 @@ import (
 	"os"
 
 	"github.com/sclevine/packfile"
+	"github.com/sclevine/packfile/link"
 	"github.com/sclevine/packfile/sync"
 )
 
 type Detect struct {
 	Streamer
-	LinkShare
+	link.Share
 	Layer         *packfile.Layer
 	RequireRunner packfile.RequireRunner
 	AppDir        string
 }
 
-func (l *Detect) info() linkerInfo {
-	return linkerInfo{
-		name:  l.Layer.Name,
-		share: &l.LinkShare,
+func (l *Detect) Info() link.Info {
+	return link.Info{
+		Name:  l.Layer.Name,
+		Share: &l.Share,
 	}
 }
 
-func (l *Detect) locks(_ linker) bool {
+func (l *Detect) Locks(_ link.Layer) bool {
 	return false
 }
 
-func (l *Detect) backward(_ []linker, _ []*sync.Layer) {}
+func (l *Detect) Backward(_ []link.Layer, _ []*sync.Layer) {}
 
-func (l *Detect) forward(_ []linker, _ []*sync.Layer) {}
+func (l *Detect) Forward(_ []link.Layer, _ []*sync.Layer) {}
 
 func (l *Detect) Links() (links []sync.Link, forTest bool) {
 	return nil, false

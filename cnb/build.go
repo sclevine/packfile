@@ -13,16 +13,17 @@ import (
 	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/exec"
 	"github.com/sclevine/packfile/layers"
+	"github.com/sclevine/packfile/link"
 	"github.com/sclevine/packfile/metadata"
 	"github.com/sclevine/packfile/sync"
 )
 
 type buildPlan struct {
-	Entries []layers.Require `toml:"entries"`
+	Entries []link.Require `toml:"entries"`
 }
 
-func (b buildPlan) get(name string) []layers.Require {
-	var out []layers.Require
+func (b buildPlan) get(name string) []link.Require {
+	var out []link.Require
 	for _, e := range b.Entries {
 		if e.Name == name {
 			out = append(out, e)
@@ -72,14 +73,14 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 	if _, err := toml.DecodeFile(planPath, &plan); err != nil {
 		return err
 	}
-	var linkLayers []layers.LinkLayer
+	var streamLayers []layers.StreamLayer
 	layerNames := map[string]struct{}{}
 	for i := range pf.Caches {
 		cache := &pf.Caches[i]
 		layerNames[cache.Name] = struct{}{}
-		linkLayer := &layers.Cache{
+		cacheLayer := &layers.Cache{
 			Streamer: sync.NewStreamer(),
-			LinkShare: layers.LinkShare{
+			Share: link.Share{
 				LayerDir: filepath.Join(layersDir, pf.Caches[i].Name),
 			},
 			Cache:  cache,
@@ -87,16 +88,16 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 		}
 		if setup := cache.Setup; setup != nil {
 			if setup.Run != nil {
-				linkLayer.SetupRunner = setup.Run
+				cacheLayer.SetupRunner = setup.Run
 			} else {
-				linkLayer.SetupRunner = &exec.Exec{
+				cacheLayer.SetupRunner = &exec.Exec{
 					Exec: shellOverride(setup.Exec, shell),
 					Name: cache.Name,
 					CtxDir: ctxDir,
 				}
 			}
 		}
-		linkLayers = append(linkLayers, linkLayer)
+		streamLayers = append(streamLayers, cacheLayer)
 	}
 	for i := range pf.Layers {
 		layer := &pf.Layers[i]
@@ -113,9 +114,9 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 		}
 		defer os.RemoveAll(mdDir)
 		layerDir := filepath.Join(layersDir, layer.Name)
-		linkLayer := &layers.Build{
+		buildLayer := &layers.Build{
 			Streamer: sync.NewStreamer(),
-			LinkShare: layers.LinkShare{
+			Share: link.Share{
 				LayerDir: layerDir,
 			},
 			Layer:       layer,
@@ -126,9 +127,9 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 		}
 		if test := layer.FindProvide().Test; test != nil {
 			if test.Run != nil {
-				linkLayer.TestRunner = test.Run
+				buildLayer.TestRunner = test.Run
 			} else {
-				linkLayer.TestRunner = &exec.Exec{
+				buildLayer.TestRunner = &exec.Exec{
 					Exec: shellOverride(test.Exec, shell),
 					Name: layer.Name,
 					CtxDir: ctxDir,
@@ -136,17 +137,17 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 			}
 		}
 		if provide := layer.FindProvide(); provide.Run != nil {
-			linkLayer.Metadata = metadata.NewMemory()
-			linkLayer.ProvideRunner = provide.Run
+			buildLayer.Metadata = metadata.NewMemory()
+			buildLayer.ProvideRunner = provide.Run
 		} else {
-			linkLayer.Metadata = metadata.NewFS(mdDir)
-			linkLayer.ProvideRunner = &exec.Exec{
+			buildLayer.Metadata = metadata.NewFS(mdDir)
+			buildLayer.ProvideRunner = &exec.Exec{
 				Exec: shellOverride(provide.Exec, shell),
 				Name: layer.Name,
 				CtxDir: ctxDir,
 			}
 		}
-		linkLayers = append(linkLayers, linkLayer)
+		streamLayers = append(streamLayers, buildLayer)
 	}
 	if err := eachDir(layersDir, func(name string) error {
 		if _, ok := layerNames[name]; !ok {
@@ -158,15 +159,16 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 	}); err != nil {
 		return err
 	}
-	syncLayers := layers.LinkLayers(linkLayers)
+	linkLayers := toLinkLayers(streamLayers)
+	syncLayers := link.Layers(linkLayers)
 	for i := range syncLayers {
 		go func(i int) {
-			defer linkLayers[i].Close()
+			defer streamLayers[i].Close()
 			syncLayers[i].Run()
 		}(i)
 	}
-	for i := range linkLayers {
-		linkLayers[i].Stream(os.Stdout, os.Stderr)
+	for i := range streamLayers {
+		streamLayers[i].Stream(os.Stdout, os.Stderr)
 	}
 	for i := range syncLayers {
 		syncLayers[i].Wait()
@@ -177,7 +179,7 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 	}, filepath.Join(layersDir, "launch.toml")); err != nil {
 		return err
 	}
-	requires, err := layers.ReadRequires(linkLayers)
+	requires, err := link.Requires(linkLayers)
 	if err != nil {
 		return err
 	}

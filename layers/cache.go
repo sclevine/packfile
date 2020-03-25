@@ -8,26 +8,27 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
+	"github.com/sclevine/packfile/link"
 	"github.com/sclevine/packfile/sync"
 )
 
 type Cache struct {
 	Streamer
-	LinkShare
+	link.Share
 	Cache       *packfile.Cache
 	SetupRunner packfile.SetupRunner
 	AppDir      string
 }
 
-func (l *Cache) info() linkerInfo {
-	return linkerInfo{
-		name:  l.Cache.Name,
-		share: &l.LinkShare,
+func (l *Cache) Info() link.Info {
+	return link.Info{
+		Name:  l.Cache.Name,
+		Share: &l.Share,
 	}
 }
 
-func (l *Cache) locks(target linker) bool {
-	for _, link := range target.info().links {
+func (l *Cache) Locks(target link.Layer) bool {
+	for _, link := range target.Info().Links {
 		if link.Name == l.Cache.Name {
 			return true
 		}
@@ -35,9 +36,9 @@ func (l *Cache) locks(target linker) bool {
 	return false
 }
 
-func (l *Cache) backward(_ []linker, _ []*sync.Layer) {}
+func (l *Cache) Backward(_ []link.Layer, _ []*sync.Layer) {}
 
-func (l *Cache) forward(_ []linker, _ []*sync.Layer) {}
+func (l *Cache) Forward(_ []link.Layer, _ []*sync.Layer) {}
 
 func (l *Cache) Links() (links []sync.Link, forTest bool) {
 	return nil, false

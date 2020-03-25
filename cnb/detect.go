@@ -7,6 +7,7 @@ import (
 	"github.com/sclevine/packfile"
 	"github.com/sclevine/packfile/exec"
 	"github.com/sclevine/packfile/layers"
+	"github.com/sclevine/packfile/link"
 	"github.com/sclevine/packfile/metadata"
 	"github.com/sclevine/packfile/sync"
 )
@@ -16,8 +17,8 @@ type planProvide struct {
 }
 
 type planSections struct {
-	Requires []layers.Require `toml:"requires"`
-	Provides []planProvide    `toml:"provides"`
+	Requires []link.Require `toml:"requires"`
+	Provides []planProvide  `toml:"provides"`
 }
 
 func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
@@ -30,7 +31,7 @@ func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
 		shell = s
 	}
 	var provides []planProvide
-	var linkLayers []layers.LinkLayer
+	var streamLayers []layers.StreamLayer
 	for i := range pf.Layers {
 		layer := &pf.Layers[i]
 		if layer.Provide != nil || layer.Build != nil {
@@ -44,42 +45,43 @@ func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
 			return err
 		}
 		defer os.RemoveAll(mdDir)
-		linkLayer := &layers.Detect{
+		detectLayer := &layers.Detect{
 			Streamer: sync.NewStreamer(),
 			Layer:    layer,
 			AppDir:   appDir,
 		}
 		if require := layer.Require; require != nil {
 			if require.Run != nil {
-				linkLayer.Metadata = metadata.NewMemory()
-				linkLayer.RequireRunner = require.Run
+				detectLayer.Metadata = metadata.NewMemory()
+				detectLayer.RequireRunner = require.Run
 			} else {
-				linkLayer.Metadata = metadata.NewFS(mdDir)
-				linkLayer.RequireRunner = &exec.Exec{
+				detectLayer.Metadata = metadata.NewFS(mdDir)
+				detectLayer.RequireRunner = &exec.Exec{
 					Exec:   shellOverride(require.Exec, shell),
 					Name:   layer.Name,
 					CtxDir: ctxDir,
 				}
 			}
 		} else {
-			linkLayer.Metadata = metadata.NewMemory()
+			detectLayer.Metadata = metadata.NewMemory()
 		}
-		linkLayers = append(linkLayers, linkLayer)
+		streamLayers = append(streamLayers, detectLayer)
 	}
-	syncLayers := layers.LinkLayers(linkLayers)
+	linkLayers := toLinkLayers(streamLayers)
+	syncLayers := link.Layers(linkLayers)
 	for i := range syncLayers {
 		go func(i int) {
-			defer linkLayers[i].Close()
+			defer streamLayers[i].Close()
 			syncLayers[i].Run()
 		}(i)
 	}
-	for i := range linkLayers {
-		linkLayers[i].Stream(os.Stdout, os.Stderr)
+	for i := range streamLayers {
+		streamLayers[i].Stream(os.Stdout, os.Stderr)
 	}
 	for i := range syncLayers {
 		syncLayers[i].Wait()
 	}
-	requires, err := layers.ReadRequires(linkLayers)
+	requires, err := link.Requires(linkLayers)
 	if err != nil {
 		return err
 	}

@@ -16,17 +16,18 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
+	"github.com/sclevine/packfile/link"
 	"github.com/sclevine/packfile/metadata"
 	"github.com/sclevine/packfile/sync"
 )
 
 type Build struct {
 	Streamer
-	LinkShare
+	link.Share
 	Layer         *packfile.Layer
 	ProvideRunner packfile.ProvideRunner
 	TestRunner    packfile.TestRunner
-	Requires      []Require
+	Requires      []link.Require
 	AppDir        string
 	BuildID       string
 	LastBuildID   string
@@ -34,52 +35,52 @@ type Build struct {
 	syncs         []sync.Link
 }
 
-func (l *Build) info() linkerInfo {
-	return linkerInfo{
-		name:  l.Layer.Name,
-		share: &l.LinkShare,
-		links: l.provide().Links,
-		app:   l.provide().WriteApp,
+func (l *Build) Info() link.Info {
+	return link.Info{
+		Name:  l.Layer.Name,
+		Share: &l.Share,
+		Links: l.provide().Links,
+		App:   l.provide().WriteApp,
 	}
 }
 
-func (l *Build) locks(_ linker) bool {
+func (l *Build) Locks(_ link.Layer) bool {
 	return false
 }
 
-func (l *Build) backward(targets []linker, syncs []*sync.Layer) {
-	from := l.info()
+func (l *Build) Backward(targets []link.Layer, syncs []*sync.Layer) {
+	from := l.Info()
 	for i := range targets {
-		to := targets[i].info()
+		to := targets[i].Info()
 
-		for _, link := range from.links {
-			if link.Name == to.name {
-				l.links = append(l.links, linkInfo{link, to.share})
+		for _, link := range from.Links {
+			if link.Name == to.Name {
+				l.links = append(l.links, linkInfo{link, to.Share})
 				l.syncs = append(l.syncs, syncs[i].Link(sync.LinkRequire))
 			}
 		}
 
-		if targets[i].locks(l) {
+		if targets[i].Locks(l) {
 			for j := range targets[i+1:] {
-				if k := i + 1 + j; targets[i].locks(targets[k]) {
+				if k := i + 1 + j; targets[i].Locks(targets[k]) {
 					l.syncs = append(l.syncs, syncs[k].Link(sync.LinkSerial))
 				}
 			}
 		}
 
-		if from.app && to.app {
+		if from.App && to.App {
 			l.syncs = append(l.syncs, syncs[i].Link(sync.LinkSerial))
 		}
 	}
 }
 
-func (l *Build) forward(targets []linker, syncs []*sync.Layer) {
-	from := l.info()
+func (l *Build) Forward(targets []link.Layer, syncs []*sync.Layer) {
+	from := l.Info()
 	for i := range targets {
-		to := targets[i].info()
+		to := targets[i].Info()
 
-		for _, link := range to.links {
-			if link.Name == from.name {
+		for _, link := range to.Links {
+			if link.Name == from.Name {
 				t := sync.LinkNone
 				if link.LinkVersion {
 					t = sync.LinkVersion
@@ -175,7 +176,7 @@ func (l *Build) layerTOML() string {
 	return l.LayerDir + ".toml"
 }
 
-func addRequire(md metadata.Metadata, req Require, dir string) error {
+func addRequire(md metadata.Metadata, req link.Require, dir string) error {
 	reqMD := map[string]interface{}{}
 	for k, v := range req.Metadata {
 		if k != "launch" && k != "build" {
@@ -190,7 +191,7 @@ func addRequire(md metadata.Metadata, req Require, dir string) error {
 	})
 }
 
-func mergeRequire(md metadata.Metadata, req Require) error {
+func mergeRequire(md metadata.Metadata, req link.Require) error {
 	prevLaunch, err := md.Read("launch")
 	if err != nil {
 		prevLaunch = "false"
