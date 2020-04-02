@@ -47,7 +47,7 @@ provide.test can be used to create custom inter-dependent layer rebuilding
 
 provide.test is never skipped
 
-write-app layers are always re-built and run serially
+lock-app layers are always re-built and run serially
 
 cache layers may be recovered from many builds ago, but all other layers must have been present during the last build
 

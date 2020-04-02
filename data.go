@@ -70,14 +70,14 @@ type Require struct {
 }
 
 type Provide struct {
-	Exec     `yaml:",inline"`
-	Run      ProvideRunner `toml:"-" yaml:"-"`
-	WriteApp bool          `toml:"write-app" yaml:"writeApp"`
-	Test     *Test         `toml:"test" yaml:"test"`
-	Links    []Link        `toml:"links" yaml:"links"`
-	Deps     []Dep         `toml:"deps" yaml:"deps"`
-	Env      Envs          `toml:"env" yaml:"env"`
-	Profile  []File        `toml:"profile" yaml:"profile"`
+	Exec    `yaml:",inline"`
+	Run     ProvideRunner `toml:"-" yaml:"-"`
+	LockApp bool          `toml:"lock-app" yaml:"lockApp"`
+	Test    *Test         `toml:"test" yaml:"test"`
+	Links   []Link        `toml:"links" yaml:"links"`
+	Deps    []Dep         `toml:"deps" yaml:"deps"`
+	Env     Envs          `toml:"env" yaml:"env"`
+	Profile []File        `toml:"profile" yaml:"profile"`
 }
 
 type Exec struct {

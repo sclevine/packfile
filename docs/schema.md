@@ -45,7 +45,7 @@ link-content = false # always rebuild on change
 link-version = false # rebuild on version change
 
 [layers.provide.test]
-full-env = false # provide links paths/layers for test + respect write-app
+full-env = false # provide links paths/layers for test + respect lock-app
 shell = "/usr/bin/env bash"
 inline = "<script>"
 path = "<path to script>"
@@ -61,7 +61,7 @@ sha = "<dep sha checksum>" # verified on download
 # additional metadata
 
 [layers.provide]
-write-app = false
+lock-app = false
 shell = "/usr/bin/env bash"
 inline = "<script>"
 path = "<path to script>"
