@@ -51,9 +51,9 @@ func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
 			AppDir:   appDir,
 		}
 		if require := layer.Require; require != nil {
-			if require.Run != nil {
+			if require.Runner != nil {
 				detectLayer.Metadata = metadata.NewMemory()
-				detectLayer.RequireRunner = require.Run
+				detectLayer.RequireRunner = require.Runner
 			} else {
 				detectLayer.Metadata = metadata.NewFS(mdDir)
 				detectLayer.RequireRunner = &exec.Exec{

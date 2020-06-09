@@ -26,16 +26,18 @@ var buildpack = &packfile.Packfile{
 			Expose: true,
 			Export: true,
 			Require: &packfile.Require{
-				Run: nodeLayer{},
+				Runner: nodeLayer{},
 			},
 		},
 		{
 			Name:   "modules",
 			Expose: true,
 			Build: &packfile.Provide{
-				Run: modulesLayer{},
+				Run: &packfile.Run{
+					Runner: modulesLayer{},
+				},
 				Test: &packfile.Test{
-					Run: modulesLayer{},
+					Runner: modulesLayer{},
 				},
 				Env: packfile.Envs{
 					Build: []packfile.Env{

@@ -60,7 +60,7 @@ sha = "<dep sha checksum>" # verified on download
 [layers.provide.deps.metadata]
 # additional metadata
 
-[layers.provide]
+[layers.provide.run]
 lock-app = false
 shell = "/usr/bin/env bash"
 inline = "<script>"

@@ -1,8 +1,6 @@
 package link
 
 import (
-	"errors"
-
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
@@ -49,7 +47,6 @@ func Layers(layers []Layer) []*sync.Layer {
 
 type Require struct {
 	Name     string                 `toml:"name"`
-	Version  string                 `toml:"version"`
 	Metadata map[string]interface{} `toml:"metadata"`
 }
 
@@ -80,11 +77,5 @@ func readRequire(name string, md metadata.Metadata) (Require, error) {
 	if out.Metadata, err = md.ReadAll(); err != nil {
 		return Require{}, err
 	}
-	if v, ok := out.Metadata["version"]; ok {
-		if out.Version, ok = v.(string); !ok {
-			return Require{}, errors.New("version must be a string")
-		}
-	}
-	delete(out.Metadata, "version")
 	return out, nil
 }

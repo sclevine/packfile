@@ -87,8 +87,8 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 			AppDir: appDir,
 		}
 		if setup := cache.Setup; setup != nil {
-			if setup.Run != nil {
-				cacheLayer.SetupRunner = setup.Run
+			if setup.Runner != nil {
+				cacheLayer.SetupRunner = setup.Runner
 			} else {
 				cacheLayer.SetupRunner = &exec.Exec{
 					Exec: shellOverride(setup.Exec, shell),
@@ -126,8 +126,8 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 			LastBuildID: lastBuildID,
 		}
 		if test := layer.FindProvide().Test; test != nil {
-			if test.Run != nil {
-				buildLayer.TestRunner = test.Run
+			if test.Runner != nil {
+				buildLayer.TestRunner = test.Runner
 			} else {
 				buildLayer.TestRunner = &exec.Exec{
 					Exec: shellOverride(test.Exec, shell),
@@ -136,15 +136,17 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 				}
 			}
 		}
-		if provide := layer.FindProvide(); provide.Run != nil {
-			buildLayer.Metadata = metadata.NewMemory()
-			buildLayer.ProvideRunner = provide.Run
-		} else {
-			buildLayer.Metadata = metadata.NewFS(mdDir)
-			buildLayer.ProvideRunner = &exec.Exec{
-				Exec: shellOverride(provide.Exec, shell),
-				Name: layer.Name,
-				CtxDir: ctxDir,
+		if run := layer.FindProvide().Run; run != nil {
+			if run.Runner != nil {
+				buildLayer.Metadata = metadata.NewMemory()
+				buildLayer.ProvideRunner = run.Runner
+			} else {
+				buildLayer.Metadata = metadata.NewFS(mdDir)
+				buildLayer.ProvideRunner = &exec.Exec{
+					Exec:   shellOverride(run.Exec, shell),
+					Name:   layer.Name,
+					CtxDir: ctxDir,
+				}
 			}
 		}
 		streamLayers = append(streamLayers, buildLayer)

@@ -21,9 +21,11 @@ var buildpack = &packfile.Packfile{
 			Name:  "nodejs",
 			Store: true,
 			Provide: &packfile.Provide{
-				Run: nodeLayer{},
 				Test: &packfile.Test{
-					Run: nodeLayer{},
+					Runner: nodeLayer{},
+				},
+				Run: &packfile.Run{
+					Runner: nodeLayer{},
 				},
 				Deps: []packfile.Dep{
 					{

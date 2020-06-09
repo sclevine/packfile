@@ -40,7 +40,7 @@ sha=$(md5sum package-lock.json | cut -d' ' -f1)
 echo "$sha-$(node -v)" > "$MD/version"
 """
 
-[layers.build]
+[layers.build.run]
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
 mv node_modules "$LAYER/"
@@ -74,7 +74,7 @@ name = "node"
 version = "{{.version}}"
 uri = "https://nodejs.org/dist/{{.version}}/node-{{.version}}-linux-x64.tar.xz"
 
-[layers.provide]
+[layers.provide.run]
 inline = """
 tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 """
@@ -113,7 +113,7 @@ name = "node"
 version = "{{.version}}"
 uri = "https://nodejs.org/dist/{{.version}}/node-{{.version}}-linux-x64.tar.xz"
 
-[layers.build]
+[layers.build.run]
 inline = """
 tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 """
@@ -135,7 +135,7 @@ inline = """
 md5sum package-lock.json | cut -d' ' -f1 > "$MD/version"
 """
 
-[layers.build]
+[layers.build.run]
 inline = """
 npm ci --unsafe-perm --cache "$NPM_CACHE"
 mv node_modules "$LAYER/"
@@ -165,7 +165,7 @@ command = "run"
 name = "server"
 export = true
 
-[layers.build]
+[layers.build.run]
 inline = """
 mkdir "$LAYER/bin"
 echo 'while true; do cat index.tcp | nc -l 8080; done' > "$LAYER/bin/run"

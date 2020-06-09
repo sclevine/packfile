@@ -33,9 +33,10 @@ layers:
         inline: |
           sha=$(md5sum package-lock.json | cut -d' ' -f1)
           echo "$sha-$(node -v)" > "$MD/version"
-      inline: |
-        npm ci --unsafe-perm --cache "$NPM_CACHE"
-        mv node_modules "$LAYER/"
+      run:
+        inline: |
+          npm ci --unsafe-perm --cache "$NPM_CACHE"
+          mv node_modules "$LAYER/"
       links:
         - name: npm-cache
           pathAs: NPM_CACHE

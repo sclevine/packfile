@@ -41,8 +41,8 @@ type Cache struct {
 }
 
 type Setup struct {
-	Exec `yaml:",inline"`
-	Run  SetupRunner `toml:"-" yaml:"-"`
+	Exec   `yaml:",inline"`
+	Runner SetupRunner `toml:"-" yaml:"-"`
 }
 
 type Layer struct {
@@ -65,19 +65,17 @@ func (l *Layer) FindProvide() *Provide {
 }
 
 type Require struct {
-	Exec `yaml:",inline"`
-	Run  RequireRunner `toml:"-" yaml:"-"`
+	Exec   `yaml:",inline"`
+	Runner RequireRunner `toml:"-" yaml:"-"`
 }
 
 type Provide struct {
-	Exec    `yaml:",inline"`
-	Run     ProvideRunner `toml:"-" yaml:"-"`
-	LockApp bool          `toml:"lock-app" yaml:"lockApp"`
-	Test    *Test         `toml:"test" yaml:"test"`
-	Links   []Link        `toml:"links" yaml:"links"`
-	Deps    []Dep         `toml:"deps" yaml:"deps"`
-	Env     Envs          `toml:"env" yaml:"env"`
-	Profile []File        `toml:"profile" yaml:"profile"`
+	Test    *Test  `toml:"test" yaml:"test"`
+	Run     *Run   `toml:"run" yaml:"run"`
+	Links   []Link `toml:"links" yaml:"links"`
+	Deps    []Dep  `toml:"deps" yaml:"deps"`
+	Env     Envs   `toml:"env" yaml:"env"`
+	Profile []File `toml:"profile" yaml:"profile"`
 }
 
 type Exec struct {
@@ -86,9 +84,15 @@ type Exec struct {
 	Path   string `toml:"path" yaml:"path"`
 }
 
+type Run struct {
+	Exec    `yaml:",inline"`
+	Runner  ProvideRunner `toml:"-" yaml:"-"`
+	LockApp bool          `toml:"lock-app" yaml:"lockApp"`
+}
+
 type Test struct {
 	Exec    `yaml:",inline"`
-	Run     TestRunner `toml:"-" yaml:"-"`
+	Runner  TestRunner `toml:"-" yaml:"-"`
 	FullEnv bool       `toml:"full-env" yaml:"fullEnv"`
 }
 

@@ -40,7 +40,7 @@ func (l *Build) Info() link.Info {
 		Name:  l.Layer.Name,
 		Share: &l.Share,
 		Links: l.provide().Links,
-		App:   l.provide().LockApp,
+		App:   l.provide().Run != nil && l.provide().Run.LockApp,
 	}
 }
 
@@ -183,9 +183,6 @@ func addRequire(md metadata.Metadata, req link.Require, dir string) error {
 			reqMD[k] = v
 		}
 	}
-	if req.Version != "" {
-		reqMD["version"] = req.Version
-	}
 	return md.WriteAll(map[string]interface{}{
 		".requires": map[string]interface{}{dir: reqMD},
 	})
@@ -215,9 +212,6 @@ func mergeRequire(md metadata.Metadata, req link.Require) error {
 		nextBuild = "false"
 	}
 	others := map[string]interface{}{}
-	if req.Version != "" {
-		others["version"] = req.Version
-	}
 	if mergeBoolStrings(nextLaunch, prevLaunch) {
 		others["launch"] = "true"
 	}
@@ -330,7 +324,7 @@ func (l *Build) Test() (exists, matched bool) {
 	if cachedBuildID != l.LastBuildID ||
 		newDigest != oldDigest ||
 		newVersion != oldVersion ||
-		l.provide().LockApp {
+		(l.provide().Run != nil && l.provide().Run.LockApp) {
 		return false, false
 	}
 	if _, err := os.Stat(l.LayerDir); xerrors.Is(err, os.ErrNotExist) {
@@ -400,9 +394,11 @@ func (l *Build) Run() {
 
 	env["APP"] = l.AppDir
 	env["LAYER"] = l.LayerDir
-	if err := l.ProvideRunner.Provide(l.Streamer, env, md, deps); err != nil {
-		l.Err = err
-		return
+	if l.ProvideRunner != nil {
+		if err := l.ProvideRunner.Provide(l.Streamer, env, md, deps); err != nil {
+			l.Err = err
+			return
+		}
 	}
 
 	layerTOMLPath := l.LayerDir + ".toml"

@@ -21,7 +21,7 @@ name = "node"
 version = "{{.version}}"
 uri = "https://nodejs.org/dist/{{.version}}/node-{{.version}}-linux-x64.tar.xz"
 
-[layers.provide]
+[layers.provide.run]
 inline = """
 tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 """
