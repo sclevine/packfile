@@ -13,7 +13,7 @@ layers:
         inline: |
           version=$(cat "$MD/version")
           url=https://semver.io/node/resolve/${version:-*}
-          echo v$(wget -q -O - "$url") > "$MD/version"
+          echo v$(curl -sL "$url") > "$MD/version"
       deps:
         - name: node
           version: "{{.version}}"

@@ -66,7 +66,7 @@ store = true
 inline = """
 version=$(cat "$MD/version")
 url=https://semver.io/node/resolve/${version:-*}
-echo v$(wget -q -O - "$url") > "$MD/version"
+echo v$(curl -sL "$url") > "$MD/version"
 """
 
 [[layers.provide.deps]]
@@ -105,7 +105,7 @@ store = true
 inline = """
 version=$(jq -r .engines.node package.json)
 url=https://semver.io/node/resolve/${version:-*}
-echo v$(wget -q -O - "$url") > "$MD/version"
+echo v$(curl -sL "$url") > "$MD/version"
 """
 
 [[layers.build.deps]]
