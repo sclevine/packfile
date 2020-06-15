@@ -7,14 +7,15 @@ import (
 
 func NewPTeeReader(r io.Reader, w io.Writer) *PTeeReader {
 	bufs := make(chan []byte, 10)
-	t := &PTeeReader{r: r, w: w, bufs: bufs}
+	t := &PTeeReader{r: r, bufs: bufs}
 	go func() {
 		for b := range bufs {
 			if t.err != nil {
+				t.wg.Done()
 				continue
 			}
-			n, err := t.w.Write(b)
-			t.n += n
+			n, err := w.Write(b)
+			t.n += int64(n)
 			if err != nil {
 				t.err = err
 			}
@@ -26,10 +27,9 @@ func NewPTeeReader(r io.Reader, w io.Writer) *PTeeReader {
 
 type PTeeReader struct {
 	r    io.Reader
-	w    io.Writer
 	bufs chan<- []byte
 	wg   rsync.WaitGroup
-	n    int
+	n    int64
 	err  error
 }
 
@@ -37,12 +37,12 @@ func (t *PTeeReader) Read(p []byte) (n int, err error) {
 	n, err = t.r.Read(p)
 	if n > 0 {
 		t.wg.Add(1)
-		t.bufs <- p[:n]
+		t.bufs <- append([]byte(nil), p[:n]...)
 	}
 	return
 }
 
-func (t *PTeeReader) Sync() (n int, err error) {
+func (t *PTeeReader) Sync() (n int64, err error) {
 	t.wg.Wait()
 	close(t.bufs)
 	return t.n, t.err

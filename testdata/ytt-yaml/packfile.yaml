@@ -1,0 +1,26 @@
+api: 0.2
+
+config:
+  id: sh.scl.ytt
+  version: 0.0.0
+  name: YTT BP
+
+layers:
+  - name: ytt
+    version: "v0.24.0"
+    export: true
+    build:
+      deps:
+      - name: ytt
+        version: "{{.version}}"
+        uri: https://github.com/k14s/ytt/releases/download/{{.version}}/ytt-linux-amd64
+      run:
+        inline: |
+          mkdir -p $LAYER/bin
+          mv $(get-dep ytt) $LAYER/bin/ytt
+          chmod +x $LAYER/bin/ytt
+
+stacks:
+  - id: io.buildpacks.stacks.bionic
+  - id: org.cloudfoundry.stacks.cflinuxfs3
+  - id: org.cloudfoundry.stacks.tiny

@@ -55,6 +55,7 @@ func (c *Client) GetFile(name, version string) (path string, err error) {
 	for _, d := range c.Deps {
 		if d.Name == name && (version == "" || d.Version == version) {
 			dep = d
+			break
 		}
 	}
 	name = fmt.Sprintf("%s@%s", dep.Name, dep.Version)

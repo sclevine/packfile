@@ -1,0 +1,45 @@
+api: 0.2
+
+config:
+  id: sh.scl.bundler
+  version: 0.0.0
+  name: Bundler Packfile
+
+caches:
+  - name: gem-cache
+
+layers:
+  - name: ruby
+    expose: true
+    export: true
+    require:
+      inline: |
+        echo "$RUBY_VERSION" > "$MD/version"
+  - name: gems
+    export: true
+    build:
+      env:
+        launch:
+          - name: GEM_PATH
+            value: "{{.Layer}}"
+        build:
+          - name: GEM_PATH
+            value: "{{.Layer}}"
+      test:
+        inline: |
+          sha=$(md5sum Gemfile.lock | cut -d' ' -f1)
+          echo "$sha-$(ruby -v)" > "$MD/version"
+      run:
+        # double-check that gem download caching actually works
+        inline: |
+          ln -sf "$GEM_CACHE" ~/.bundle
+          gem install -f bundler:$(grep -A 1 '^BUNDLED WITH$' Gemfile.lock|tail -n 1|sed 's/^ *//')
+          bundle install
+      links:
+        - name: gem-cache
+          pathAs: GEM_CACHE
+
+stacks:
+  - id: io.buildpacks.stacks.bionic
+  - id: org.cloudfoundry.stacks.cflinuxfs3
+  - id: org.cloudfoundry.stacks.tiny

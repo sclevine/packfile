@@ -1,0 +1,41 @@
+api: 0.2
+
+config:
+  id: sh.scl.ruby
+  version: 0.0.0
+  name: Ruby Packfile
+
+layers:
+  - name: ruby
+    store: true
+    provide:
+      deps:
+        - name: ruby
+          version: 2.7.1
+          uri: https://buildpacks.cloudfoundry.org/dependencies/ruby/ruby_2.7.1_linux_x64_cflinuxfs3_e2562008.tgz
+          sha: e25620088c536685f81aaae0f7f03c2143aa3dc9078a99707168915e85568f04
+          metadata:
+            source: https://cache.ruby-lang.org/pub/ruby/2.7/ruby-2.7.1.tar.gz
+            license: https://www.ruby-lang.org/en/about/license.txt
+        - name: ruby
+          version: 2.6.6
+          uri: https://buildpacks.cloudfoundry.org/dependencies/ruby/ruby_2.6.6_linux_x64_cflinuxfs3_9f860a65.tgz
+          sha: 9f860a6520bf8774fcb06ea9a33ae17818875b747b58ca11b0690223c7126493
+          metadata:
+            source: https://cache.ruby-lang.org/pub/ruby/2.6/ruby-2.6.6.tar.gz
+            license: https://www.ruby-lang.org/en/about/license.txt
+        - name: ruby
+          version: 2.5.8
+          uri: https://buildpacks.cloudfoundry.org/dependencies/ruby/ruby_2.5.8_linux_x64_cflinuxfs3_3dba0259.tgz
+          sha: 3dba0259334a540f87fb8322a67550acbf5aa974e0f21dc47d6b71fb76edb3de
+          metadata:
+            source: https://cache.ruby-lang.org/pub/ruby/2.5/ruby-2.5.8.tar.gz
+            license: https://www.ruby-lang.org/en/about/license.txt
+      run:
+        inline: |
+          tar -C "$LAYER" -xzf "$(get-dep ruby "$(cat $MD/version)")" --strip-components=1
+
+stacks:
+  - id: io.buildpacks.stacks.bionic
+  - id: org.cloudfoundry.stacks.cflinuxfs3
+  - id: org.cloudfoundry.stacks.tiny

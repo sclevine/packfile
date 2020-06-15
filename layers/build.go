@@ -504,22 +504,17 @@ func (l *Build) setupEnvs(env packfile.EnvMap) error {
 	}
 	envBuild := filepath.Join(l.LayerDir, "env.build")
 	envLaunch := filepath.Join(l.LayerDir, "env.launch")
-	vars := struct {
-		Layer string
-		App   string
-	}{l.LayerDir, l.AppDir}
-
-	if err := setupEnvDir(envs.Build, envBuild, vars); err != nil {
+	if err := setupEnvDir(envs.Build, envBuild); err != nil {
 		return err
 	}
 	lcEnv := lcenv.Env{RootDirMap: lcenv.POSIXBuildEnv, Vars: env}
 	if err := lcEnv.AddEnvDir(envBuild); err != nil {
 		return err
 	}
-	return setupEnvDir(envs.Launch, envLaunch, vars)
+	return setupEnvDir(envs.Launch, envLaunch)
 }
 
-func setupEnvDir(env []packfile.Env, path string, vars interface{}) error {
+func setupEnvDir(env []packfile.Env, path string) error {
 	if len(env) == 0 {
 		return nil
 	}
