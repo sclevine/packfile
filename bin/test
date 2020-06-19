@@ -8,3 +8,4 @@ pack build pack-app --path testdata/app --buildpack out/pf.tgz --builder gcr.io/
 pack build pack-app-toml --path testdata/app --buildpack testout/node-toml.tgz --buildpack testout/npm-toml.tgz --builder gcr.io/paketo-buildpacks/builder:base -v --clear-cache
 pack build pack-app-yaml --path testdata/app --buildpack testout/node-yaml.tgz --buildpack testout/npm-yaml.tgz --builder gcr.io/paketo-buildpacks/builder:base -v --clear-cache
 pack build pack-app-go --path testdata/app --buildpack testout/node-go.tgz --buildpack testout/npm-go.tgz --builder gcr.io/paketo-buildpacks/builder:base -v --clear-cache
+pack build pack-app-ruby --path testdata/ruby-app --buildpack testout/ruby-yaml.tgz --buildpack testout/bundler-yaml.tgz --builder gcr.io/paketo-buildpacks/builder:full-cf -v --clear-cache

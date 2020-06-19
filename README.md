@@ -42,6 +42,9 @@ Buildpacks:
 - `testout/npm-toml.tgz` is an NPM buildpack built from `testdata/npm-toml`.
 - `testout/npm-yaml.tgz` is an NPM buildpack built from `testdata/npm-yaml`.
 - `testout/npm-go.tgz` is an NPM buildpack built from `testdata/npm-go`.
+- `testout/ruby-yaml.tgz` is a Ruby buildpack built from `testdata/ruby-yaml`.
+- `testout/bundler-yaml.tgz` is a Bundler buildpack built from `testdata/bundler-yaml`.
+- `testout/ytt-yaml.tgz` is a buildpack that builds YTT from `testdata/ytt-yaml`.
 
 ## Test
 

@@ -30,7 +30,6 @@ layers:
           sha=$(md5sum Gemfile.lock | cut -d' ' -f1)
           echo "$sha-$(ruby -v)" > "$MD/version"
       run:
-        # double-check that gem download caching actually works
         inline: |
           ln -sf "$GEM_CACHE" ~/.bundle
           gem install -f bundler:$(grep -A 1 '^BUNDLED WITH$' Gemfile.lock|tail -n 1|sed 's/^ *//')

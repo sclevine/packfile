@@ -29,3 +29,4 @@ out/pf -p testout/npm-go -i testdata/npm-go/packfile.toml -o testout/npm-go.tgz
 
 out/pf -i testdata/ruby-yaml -o testout/ruby-yaml.tgz
 out/pf -i testdata/bundler-yaml -o testout/bundler-yaml.tgz
+out/pf -i testdata/ytt-yaml -o testout/ytt-yaml.tgz
