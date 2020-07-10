@@ -40,7 +40,7 @@ func (l *Build) Info() link.Info {
 		Name:  l.Layer.Name,
 		Share: &l.Share,
 		Links: l.provide().Links,
-		App:   l.provide().Run != nil && l.provide().Run.LockApp,
+		App:   l.provide().LockApp,
 	}
 }
 
@@ -324,7 +324,7 @@ func (l *Build) Test() (exists, matched bool) {
 	if cachedBuildID != l.LastBuildID ||
 		newDigest != oldDigest ||
 		newVersion != oldVersion ||
-		(l.provide().Run != nil && l.provide().Run.LockApp) {
+		l.provide().LockApp {
 		return false, false
 	}
 	if _, err := os.Stat(l.LayerDir); xerrors.Is(err, os.ErrNotExist) {

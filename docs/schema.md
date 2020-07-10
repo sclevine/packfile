@@ -36,6 +36,9 @@ shell = "/usr/bin/env bash"
 inline = "<script>"
 path = "<path to script>"
 
+[layers.provide]
+lock-app = false
+
 [[layers.provide.links]]
 name = "<layer/cache name reference>"
 path-as = "<env var name for path>"
@@ -62,7 +65,6 @@ sha = "<dep sha checksum>" # verified on download
 # additional metadata
 
 [layers.provide.run]
-lock-app = false
 shell = "/usr/bin/env bash"
 inline = "<script>"
 path = "<path to script>"

@@ -70,6 +70,7 @@ type Require struct {
 }
 
 type Provide struct {
+	LockApp bool   `toml:"lock-app" yaml:"lockApp"`
 	Test    *Test  `toml:"test" yaml:"test"`
 	Run     *Run   `toml:"run" yaml:"run"`
 	Links   []Link `toml:"links" yaml:"links"`
@@ -85,9 +86,8 @@ type Exec struct {
 }
 
 type Run struct {
-	Exec    `yaml:",inline"`
-	Runner  ProvideRunner `toml:"-" yaml:"-"`
-	LockApp bool          `toml:"lock-app" yaml:"lockApp"`
+	Exec   `yaml:",inline"`
+	Runner ProvideRunner `toml:"-" yaml:"-"`
 }
 
 type Test struct {
