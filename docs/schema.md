@@ -69,14 +69,17 @@ shell = "/usr/bin/env bash"
 inline = "<script>"
 path = "<path to script>"
 
-[[layers.provide.env.launch]]
+[[layers.provide.env.both]]
 name = "<name>"
 value = "<value>" # interpolated with .Layer and .App
 op = "<operation>" # default: override
 delim = "<delimiter>"
 
+[[layers.provide.env.launch]]
+# same as [[layers.provide.env.both]], just launch-time
+
 [[layers.provide.env.build]]
-# same as [[layers.provide.env.launch]]
+# same as [[layers.provide.env.both]], just build-time
 
 [[layers.provide.profile]]
 inline = "<script>"

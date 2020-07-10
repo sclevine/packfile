@@ -19,10 +19,7 @@ layers:
     export: true
     build:
       env:
-        launch:
-          - name: GEM_PATH
-            value: "{{.Layer}}"
-        build:
+        both:
           - name: GEM_PATH
             value: "{{.Layer}}"
       test:

@@ -40,10 +40,7 @@ var buildpack = &packfile.Packfile{
 					Runner: modulesLayer{},
 				},
 				Env: packfile.Envs{
-					Build: []packfile.Env{
-						{Name: "NODE_PATH", Value: "{{.Layer}}/node_modules"},
-					},
-					Launch: []packfile.Env{
+					Both: []packfile.Env{
 						{Name: "NODE_PATH", Value: "{{.Layer}}/node_modules"},
 					},
 				},

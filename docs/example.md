@@ -122,11 +122,7 @@ tar -C "$LAYER" -xJf "$(get-dep node)" --strip-components=1
 name = "modules"
 export = true
 
-[[layers.build.env.launch]]
-name = "NODE_PATH"
-value = "{{.Layer}}/node_modules"
-
-[[layers.build.env.build]]
+[[layers.build.env.both]]
 name = "NODE_PATH"
 value = "{{.Layer}}/node_modules"
 

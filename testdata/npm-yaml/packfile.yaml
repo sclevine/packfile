@@ -23,10 +23,7 @@ layers:
     export: true
     build:
       env:
-        launch:
-          - name: NODE_PATH
-            value: "{{.Layer}}/node_modules"
-        build:
+        both:
           - name: NODE_PATH
             value: "{{.Layer}}/node_modules"
       test:

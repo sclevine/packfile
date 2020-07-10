@@ -117,6 +117,7 @@ type Dep struct {
 type Envs struct {
 	Build  []Env `toml:"build" yaml:"build"`
 	Launch []Env `toml:"launch" yaml:"launch"`
+	Both   []Env `toml:"both" yaml:"both"`
 }
 
 type Env struct {

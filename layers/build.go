@@ -118,6 +118,14 @@ func (l *Build) envs() (packfile.Envs, error) {
 		}
 		out.Launch = append(out.Launch, e)
 	}
+	for _, e := range l.provide().Env.Both {
+		var err error
+		e.Value, err = interpolate(e.Value, vars)
+		if err != nil {
+			return out, err
+		}
+		out.Both = append(out.Both, e)
+	}
 	return out, nil
 }
 
@@ -472,6 +480,9 @@ func (l *Build) digest() string {
 		for _, env := range envs.Build {
 			writeField(hash, env.Name, env.Value, env.Op, env.Delim)
 		}
+		for _, env := range envs.Both {
+			writeField(hash, env.Name, env.Value, env.Op, env.Delim)
+		}
 	}
 	for _, link := range l.provide().Links {
 		writeField(hash, link.Name, link.PathEnv, link.VersionEnv, link.MetadataEnv)
@@ -502,16 +513,23 @@ func (l *Build) setupEnvs(env packfile.EnvMap) error {
 	if err != nil {
 		return err
 	}
+	envBoth := filepath.Join(l.LayerDir, "env")
 	envBuild := filepath.Join(l.LayerDir, "env.build")
 	envLaunch := filepath.Join(l.LayerDir, "env.launch")
+	if err := setupEnvDir(envs.Both, envBoth); err != nil {
+		return err
+	}
 	if err := setupEnvDir(envs.Build, envBuild); err != nil {
 		return err
 	}
-	lcEnv := lcenv.Env{RootDirMap: lcenv.POSIXBuildEnv, Vars: env}
-	if err := lcEnv.AddEnvDir(envBuild); err != nil {
+	if err := setupEnvDir(envs.Launch, envLaunch); err != nil {
 		return err
 	}
-	return setupEnvDir(envs.Launch, envLaunch)
+	lcEnv := lcenv.Env{RootDirMap: lcenv.POSIXBuildEnv, Vars: env}
+	if err := lcEnv.AddEnvDir(envBoth); err != nil {
+		return err
+	}
+	return lcEnv.AddEnvDir(envBuild)
 }
 
 func setupEnvDir(env []packfile.Env, path string) error {
