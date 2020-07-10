@@ -1,8 +1,13 @@
 package cnb
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"hash"
+	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 
 	"github.com/BurntSushi/toml"
 
@@ -49,4 +54,47 @@ func toLinkLayers(layers []layers.StreamLayer) []link.Layer {
 		out[i] = layer
 	}
 	return out
+}
+
+type matchTest struct {
+	Globs []string
+	Dir string
+}
+
+func (m matchTest) Test(st packfile.Streamer, env packfile.EnvMap, md packfile.Metadata) error {
+	hash := sha256.New()
+	for _, glob := range m.Globs {
+		matches, err := filepath.Glob(filepath.Join(m.Dir, glob))
+		if err != nil {
+			return err
+		}
+		for _, match := range matches {
+			if err := sumPath(hash, match); err != nil {
+				return err
+			}
+		}
+	}
+	return md.Write(fmt.Sprintf("%x", hash.Sum(nil)), "version")
+}
+
+func sumPath(hash hash.Hash, path string) error {
+	return filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if _, err := io.WriteString(hash, path); err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			f, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			if _, err := io.Copy(hash, f); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

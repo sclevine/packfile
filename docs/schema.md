@@ -49,6 +49,7 @@ full-env = false # provide links paths/layers for test + respect lock-app
 shell = "/usr/bin/env bash"
 inline = "<script>"
 path = "<path to script>"
+match = ["<file path glob>"] # uses recursive checksum of app dir files as version
 
 # all deps fields can be go-templated with metadata
 [[layers.provide.deps]]

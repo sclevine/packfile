@@ -128,11 +128,16 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 		if test := layer.FindProvide().Test; test != nil {
 			if test.Runner != nil {
 				buildLayer.TestRunner = test.Runner
-			} else {
+			} else if test.Exec != (packfile.Exec{}) {
 				buildLayer.TestRunner = &exec.Exec{
 					Exec: shellOverride(test.Exec, shell),
 					Name: layer.Name,
 					CtxDir: ctxDir,
+				}
+			} else if len(test.Match) > 0 {
+				buildLayer.TestRunner = &matchTest{
+					Globs: test.Match,
+					Dir: appDir,
 				}
 			}
 		}

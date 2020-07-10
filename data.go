@@ -93,6 +93,7 @@ type Run struct {
 type Test struct {
 	Exec    `yaml:",inline"`
 	Runner  TestRunner `toml:"-" yaml:"-"`
+	Match   []string   `toml:"match" yaml:"match"`
 	FullEnv bool       `toml:"full-env" yaml:"fullEnv"`
 }
 
