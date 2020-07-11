@@ -127,9 +127,7 @@ name = "NODE_PATH"
 value = "{{.Layer}}/node_modules"
 
 [layers.build.test]
-inline = """
-md5sum package-lock.json | cut -d' ' -f1 > "$MD/version"
-"""
+match = ["package-lock.json"]
 
 [layers.build.run]
 inline = """
