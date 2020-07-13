@@ -48,7 +48,7 @@ func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
 		defer os.RemoveAll(mdDir)
 		detectLayer := &layers.Detect{
 			Streamer: sync.NewStreamer(),
-			Kernel:   sync.NewKernel(layer.Name, lock),
+			Kernel:   sync.NewKernel(layer.Name, lock, false),
 			Layer:    layer,
 			AppDir:   appDir,
 		}

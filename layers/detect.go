@@ -32,8 +32,8 @@ func (l *Detect) Backward(_ []link.Layer) {}
 
 func (l *Detect) Forward(_ []link.Layer) {}
 
-func (l *Detect) Links() (links []sync.Link, forTest bool) {
-	return nil, false
+func (l *Detect) Links() []sync.Link {
+	return nil
 }
 
 func (l *Detect) Test() (exists, matched bool, err error) {

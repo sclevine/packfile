@@ -84,7 +84,7 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 			Share: link.Share{
 				LayerDir: filepath.Join(layersDir, pf.Caches[i].Name),
 			},
-			Kernel: sync.NewKernel(cache.Name, lock),
+			Kernel: sync.NewKernel(cache.Name, lock, false),
 			Cache:  cache,
 			AppDir: appDir,
 		}
@@ -121,7 +121,7 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 			Share: link.Share{
 				LayerDir: layerDir,
 			},
-			Kernel:      sync.NewKernel(layer.Name, lock),
+			Kernel:      sync.NewKernel(layer.Name, lock, fullEnv(layer)),
 			Layer:       layer,
 			Requires:    plan.get(layer.Name),
 			AppDir:      appDir,
@@ -197,4 +197,11 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 		return err
 	}
 	return writeTOML(store, storePath)
+}
+
+func fullEnv(l *packfile.Layer) bool {
+	if p := l.FindProvide(); p.Test != nil {
+		return p.Test.FullEnv
+	}
+	return false
 }

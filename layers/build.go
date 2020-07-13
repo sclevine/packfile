@@ -97,82 +97,13 @@ func (l *Build) Forward(targets []link.Layer) {
 	}
 }
 
-func (l *Build) envs() (packfile.Envs, error) {
-	out := packfile.Envs{}
-	vars := struct {
-		Layer string
-		App   string
-	}{l.LayerDir, l.AppDir}
-	for _, e := range l.provide().Env.Build {
-		var err error
-		e.Value, err = interpolate(e.Value, vars)
-		if err != nil {
-			return out, err
-		}
-		out.Build = append(out.Build, e)
-	}
-	for _, e := range l.provide().Env.Launch {
-		var err error
-		e.Value, err = interpolate(e.Value, vars)
-		if err != nil {
-			return out, err
-		}
-		out.Launch = append(out.Launch, e)
-	}
-	for _, e := range l.provide().Env.Both {
-		var err error
-		e.Value, err = interpolate(e.Value, vars)
-		if err != nil {
-			return out, err
-		}
-		out.Both = append(out.Both, e)
-	}
-	return out, nil
-}
-
-func (l *Build) deps() ([]packfile.Dep, error) {
-	vars, err := l.Metadata.ReadAll()
-	if err != nil {
-		return nil, err
-	}
-	var deps []packfile.Dep
-	for _, dep := range l.provide().Deps {
-		if dep.Name, err = interpolate(dep.Name, vars); err != nil {
-			return nil, err
-		}
-		if dep.Version, err = interpolate(dep.Version, vars); err != nil {
-			return nil, err
-		}
-		if dep.URI, err = interpolate(dep.URI, vars); err != nil {
-			return nil, err
-		}
-		if dep.SHA, err = interpolate(dep.SHA, vars); err != nil {
-			return nil, err
-		}
-		deps = append(deps, dep)
-	}
-	return deps, nil
-}
-
-func interpolate(text string, vars interface{}) (string, error) {
-	tmpl, err := template.New("vars").Parse(text)
-	if err != nil {
-		return "", err
-	}
-	out := &bytes.Buffer{}
-	if err := tmpl.Execute(out, vars); err != nil {
-		return "", err
-	}
-	return out.String(), nil
-}
-
-func (l *Build) Links() (links []sync.Link, forTest bool) {
-	return l.syncs, l.fullEnv()
+func (l *Build) Links() []sync.Link {
+	return l.syncs
 }
 
 func (l *Build) fullEnv() bool {
-	if l.provide().Test != nil {
-		return l.provide().Test.FullEnv
+	if p := l.provide(); p.Test != nil {
+		return p.Test.FullEnv
 	}
 	return false
 }
@@ -473,6 +404,75 @@ func writeFile(out io.Writer, path string) {
 		defer f.Close()
 		fmt.Fprintln(out, f)
 	}
+}
+
+func (l *Build) envs() (packfile.Envs, error) {
+	out := packfile.Envs{}
+	vars := struct {
+		Layer string
+		App   string
+	}{l.LayerDir, l.AppDir}
+	for _, e := range l.provide().Env.Build {
+		var err error
+		e.Value, err = interpolate(e.Value, vars)
+		if err != nil {
+			return out, err
+		}
+		out.Build = append(out.Build, e)
+	}
+	for _, e := range l.provide().Env.Launch {
+		var err error
+		e.Value, err = interpolate(e.Value, vars)
+		if err != nil {
+			return out, err
+		}
+		out.Launch = append(out.Launch, e)
+	}
+	for _, e := range l.provide().Env.Both {
+		var err error
+		e.Value, err = interpolate(e.Value, vars)
+		if err != nil {
+			return out, err
+		}
+		out.Both = append(out.Both, e)
+	}
+	return out, nil
+}
+
+func (l *Build) deps() ([]packfile.Dep, error) {
+	vars, err := l.Metadata.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	var deps []packfile.Dep
+	for _, dep := range l.provide().Deps {
+		if dep.Name, err = interpolate(dep.Name, vars); err != nil {
+			return nil, err
+		}
+		if dep.Version, err = interpolate(dep.Version, vars); err != nil {
+			return nil, err
+		}
+		if dep.URI, err = interpolate(dep.URI, vars); err != nil {
+			return nil, err
+		}
+		if dep.SHA, err = interpolate(dep.SHA, vars); err != nil {
+			return nil, err
+		}
+		deps = append(deps, dep)
+	}
+	return deps, nil
+}
+
+func interpolate(text string, vars interface{}) (string, error) {
+	tmpl, err := template.New("vars").Parse(text)
+	if err != nil {
+		return "", err
+	}
+	out := &bytes.Buffer{}
+	if err := tmpl.Execute(out, vars); err != nil {
+		return "", err
+	}
+	return out.String(), nil
 }
 
 func (l *Build) setupEnvs(env packfile.EnvMap) error {

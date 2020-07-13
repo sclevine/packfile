@@ -41,8 +41,8 @@ func (l *Cache) Backward(_ []link.Layer) {}
 
 func (l *Cache) Forward(_ []link.Layer) {}
 
-func (l *Cache) Links() (links []sync.Link, forTest bool) {
-	return nil, false
+func (l *Cache) Links() []sync.Link {
+	return nil
 }
 
 func (l *Cache) Test() (exists, matched bool, err error) {

@@ -68,7 +68,7 @@ type Node interface {
 	Run() error
 	Skip() error
 	Test() (exists, matched bool, err error)
-	Links() (links []Link, forTest bool)
+	Links() []Link
 
 	kernel() *Kernel
 }
@@ -89,12 +89,14 @@ func NodeError(node Node) error {
 	return node.kernel().err
 }
 
+// Kernel must be embedded into a struct that implements Node
 type Kernel struct {
-	err     error
 	name    string
+	err     error
 	matched bool
 	exists  bool
 	change  bool
+	fullEnv bool
 	testWG  *sync.WaitGroup
 	runWG   *sync.WaitGroup
 	c       chan Event
@@ -102,18 +104,19 @@ type Kernel struct {
 	lock    *Lock
 }
 
-func NewKernel(name string, lock *Lock) *Kernel {
+func NewKernel(name string, lock *Lock, fullEnv bool) *Kernel {
 	testWG := &sync.WaitGroup{}
 	testWG.Add(1)
 	runWG := &sync.WaitGroup{}
 	runWG.Add(1)
 	return &Kernel{
-		name:   name,
-		testWG: testWG,
-		runWG:  runWG,
-		c:      make(chan Event),
-		done:   make(chan struct{}),
-		lock:   lock,
+		name:    name,
+		fullEnv: fullEnv,
+		testWG:  testWG,
+		runWG:   runWG,
+		c:       make(chan Event),
+		done:    make(chan struct{}),
+		lock:    lock,
 	}
 }
 
@@ -133,11 +136,10 @@ func (k *Kernel) wait() {
 }
 
 func (k *Kernel) run(node Node) {
-	links, forTest := node.Links()
-	if forTest {
-		k.tryAfter(node, links)
+	if k.fullEnv {
+		k.tryAfter(node, node.Links())
 	} else {
-		k.try(node, links)
+		k.try(node, node.Links())
 	}
 }
 
