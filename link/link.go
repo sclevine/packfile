@@ -1,6 +1,8 @@
 package link
 
 import (
+	"io"
+
 	"golang.org/x/xerrors"
 
 	"github.com/sclevine/packfile"
@@ -10,11 +12,19 @@ import (
 )
 
 type Layer interface {
-	sync.Runner
+	sync.Node
+	Streamer
 	Info() Info
 	Locks(target Layer) bool
-	Forward(targets []Layer, syncs []*sync.Layer)
-	Backward(targets []Layer, syncs []*sync.Layer)
+	Forward(targets []Layer)
+	Backward(targets []Layer)
+}
+
+type Streamer interface {
+	Stdout() io.Writer
+	Stderr() io.Writer
+	Stream(out, err io.Writer) error
+	Close() error
 }
 
 type Info struct {
@@ -27,22 +37,15 @@ type Info struct {
 type Share struct {
 	LayerDir string
 	Metadata metadata.Metadata
-	Err      error
 }
 
-func Layers(layers []Layer) []*sync.Layer {
-	lock := sync.NewLock(len(layers))
-	syncs := make([]*sync.Layer, len(layers))
+func Layers(layers []Layer) {
 	for i := range layers {
-		syncs[i] = sync.NewLayer(lock, layers[i])
+		layers[i].Backward(layers[:i])
 	}
 	for i := range layers {
-		layers[i].Backward(layers[:i], syncs[:i])
+		layers[i].Forward(layers[i+1:])
 	}
-	for i := range layers {
-		layers[i].Forward(layers[i+1:], syncs[i+1:])
-	}
-	return syncs
 }
 
 type Require struct {
@@ -54,10 +57,11 @@ func Requires(layers []Layer) ([]Require, error) {
 	var requires []Require
 	for _, layer := range layers {
 		info := layer.Info()
-		if exec.IsFail(info.Share.Err) {
+		err := sync.NodeError(layer)
+		if exec.IsFail(err) {
 			continue
-		} else if info.Share.Err != nil {
-			return nil, xerrors.Errorf("error for layer '%s': %w", info.Name, info.Share.Err)
+		} else if err != nil {
+			return nil, xerrors.Errorf("error for layer '%s': %w", info.Name, err)
 		}
 		if info.Share.Metadata == nil {
 			continue

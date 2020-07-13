@@ -1,7 +1,6 @@
 package layers
 
 import (
-	"io"
 	"os"
 
 	"github.com/BurntSushi/toml"
@@ -10,18 +9,6 @@ import (
 	"github.com/sclevine/packfile/link"
 	"github.com/sclevine/packfile/metadata"
 )
-
-type Streamer interface {
-	Stdout() io.Writer
-	Stderr() io.Writer
-	Stream(out, err io.Writer) error
-	Close() error
-}
-
-type StreamLayer interface {
-	link.Layer
-	Streamer
-}
 
 type linkInfo struct {
 	packfile.Link

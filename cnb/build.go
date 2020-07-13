@@ -73,7 +73,8 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 	if _, err := toml.DecodeFile(planPath, &plan); err != nil {
 		return err
 	}
-	var streamLayers []layers.StreamLayer
+	lock := sync.NewLock()
+	var linkLayers []link.Layer
 	layerNames := map[string]struct{}{}
 	for i := range pf.Caches {
 		cache := &pf.Caches[i]
@@ -83,6 +84,7 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 			Share: link.Share{
 				LayerDir: filepath.Join(layersDir, pf.Caches[i].Name),
 			},
+			Kernel: sync.NewKernel(cache.Name, lock),
 			Cache:  cache,
 			AppDir: appDir,
 		}
@@ -91,23 +93,23 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 				cacheLayer.SetupRunner = setup.Runner
 			} else {
 				cacheLayer.SetupRunner = &exec.Exec{
-					Exec: shellOverride(setup.Exec, shell),
-					Name: cache.Name,
+					Exec:   shellOverride(setup.Exec, shell),
+					Name:   cache.Name,
 					CtxDir: ctxDir,
 				}
 			}
 		}
-		streamLayers = append(streamLayers, cacheLayer)
+		linkLayers = append(linkLayers, cacheLayer)
 	}
 	for i := range pf.Layers {
 		layer := &pf.Layers[i]
-		layerNames[layer.Name] = struct{}{}
 		if layer.Provide != nil && layer.Build != nil {
 			return xerrors.Errorf("layer '%s' has both provide and build sections", layer.Name)
 		}
 		if layer.Build == nil && layer.Provide == nil {
 			continue
 		}
+		layerNames[layer.Name] = struct{}{}
 		mdDir, err := ioutil.TempDir("", "packfile.md."+layer.Name)
 		if err != nil {
 			return err
@@ -119,6 +121,7 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 			Share: link.Share{
 				LayerDir: layerDir,
 			},
+			Kernel:      sync.NewKernel(layer.Name, lock),
 			Layer:       layer,
 			Requires:    plan.get(layer.Name),
 			AppDir:      appDir,
@@ -130,14 +133,14 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 				buildLayer.TestRunner = test.Runner
 			} else if test.Exec != (packfile.Exec{}) {
 				buildLayer.TestRunner = &exec.Exec{
-					Exec: shellOverride(test.Exec, shell),
-					Name: layer.Name,
+					Exec:   shellOverride(test.Exec, shell),
+					Name:   layer.Name,
 					CtxDir: ctxDir,
 				}
 			} else if len(test.Match) > 0 {
 				buildLayer.TestRunner = &matchTest{
 					Globs: test.Match,
-					Dir: appDir,
+					Dir:   appDir,
 				}
 			}
 		}
@@ -154,7 +157,7 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 				}
 			}
 		}
-		streamLayers = append(streamLayers, buildLayer)
+		linkLayers = append(linkLayers, buildLayer)
 	}
 	if err := eachDir(layersDir, func(name string) error {
 		if _, ok := layerNames[name]; !ok {
@@ -166,19 +169,19 @@ func Build(pf *packfile.Packfile, ctxDir, layersDir, platformDir, planPath strin
 	}); err != nil {
 		return err
 	}
-	linkLayers := toLinkLayers(streamLayers)
-	syncLayers := link.Layers(linkLayers)
-	for i := range syncLayers {
+	lock.Add(len(linkLayers))
+	link.Layers(linkLayers)
+	for i := range linkLayers {
 		go func(i int) {
-			defer streamLayers[i].Close()
-			syncLayers[i].Run()
+			defer linkLayers[i].Close()
+			sync.RunNode(linkLayers[i])
 		}(i)
 	}
-	for i := range streamLayers {
-		streamLayers[i].Stream(os.Stdout, os.Stderr)
+	for i := range linkLayers {
+		linkLayers[i].Stream(os.Stdout, os.Stderr)
 	}
-	for i := range syncLayers {
-		syncLayers[i].Wait()
+	for i := range linkLayers {
+		sync.WaitForNode(linkLayers[i])
 	}
 	if err := writeTOML(launchTOML{
 		Processes: pf.Processes,

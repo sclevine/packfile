@@ -22,8 +22,9 @@ import (
 )
 
 type Build struct {
-	Streamer
+	link.Streamer
 	link.Share
+	*sync.Kernel
 	Layer         *packfile.Layer
 	ProvideRunner packfile.ProvideRunner
 	TestRunner    packfile.TestRunner
@@ -48,7 +49,7 @@ func (l *Build) Locks(_ link.Layer) bool {
 	return false
 }
 
-func (l *Build) Backward(targets []link.Layer, syncs []*sync.Layer) {
+func (l *Build) Backward(targets []link.Layer) {
 	from := l.Info()
 	for i := range targets {
 		to := targets[i].Info()
@@ -56,25 +57,25 @@ func (l *Build) Backward(targets []link.Layer, syncs []*sync.Layer) {
 		for _, link := range from.Links {
 			if link.Name == to.Name {
 				l.links = append(l.links, linkInfo{link, to.Share})
-				l.syncs = append(l.syncs, syncs[i].Link(sync.LinkRequire))
+				l.syncs = append(l.syncs, sync.NodeLink(targets[i], sync.LinkRequire))
 			}
 		}
 
 		if targets[i].Locks(l) {
 			for j := range targets[i+1:] {
 				if k := i + 1 + j; targets[i].Locks(targets[k]) {
-					l.syncs = append(l.syncs, syncs[k].Link(sync.LinkSerial))
+					l.syncs = append(l.syncs, sync.NodeLink(targets[k], sync.LinkSerial))
 				}
 			}
 		}
 
 		if from.App && to.App {
-			l.syncs = append(l.syncs, syncs[i].Link(sync.LinkSerial))
+			l.syncs = append(l.syncs, sync.NodeLink(targets[i], sync.LinkSerial))
 		}
 	}
 }
 
-func (l *Build) Forward(targets []link.Layer, syncs []*sync.Layer) {
+func (l *Build) Forward(targets []link.Layer) {
 	from := l.Info()
 	for i := range targets {
 		to := targets[i].Info()
@@ -89,7 +90,7 @@ func (l *Build) Forward(targets []link.Layer, syncs []*sync.Layer) {
 					t = sync.LinkContent
 				}
 				if t != sync.LinkNone {
-					l.syncs = append(l.syncs, syncs[i].Link(t))
+					l.syncs = append(l.syncs, sync.NodeLink(targets[i], t))
 				}
 			}
 		}
@@ -240,22 +241,20 @@ func padNum(n int) func(int) string {
 	}
 }
 
-func (l *Build) Test() (exists, matched bool) {
+func (l *Build) Test() (exists, matched bool, err error) {
 	if l.Layer.Require == nil {
 		if err := writeLayerMetadata(l.Metadata, l.Layer); err != nil {
-			l.Err = err
-			return false, false
+			return false, false, err
 		}
 	}
 	pad := padNum(len(l.Requires))
 	for i, req := range l.Requires {
 		if err := addRequire(l.Metadata, req, pad(i)); err != nil {
-			l.Err = err
-			return false, false
+			return false, false, err
+
 		}
 		if err := mergeRequire(l.Metadata, req); err != nil {
-			l.Err = err
-			return false, false
+			return false, false, err
 		}
 	}
 
@@ -263,18 +262,13 @@ func (l *Build) Test() (exists, matched bool) {
 	md := newMetadataMap(l.Metadata)
 
 	for _, link := range l.links {
-		if link.Err != nil {
-			l.Err = xerrors.Errorf("link '%s' failed: %w", link.Name, link.Err)
-			return false, false
-		}
 		if l.fullEnv() && link.PathEnv != "" {
 			env[link.PathEnv] = link.LayerDir
 		}
 		if link.VersionEnv != "" {
 			lt, err := readLayerTOML(link.layerTOML())
 			if err != nil {
-				l.Err = err
-				return false, false
+				return false, false, err
 			}
 			env[link.VersionEnv] = lt.Metadata.Version
 		}
@@ -284,27 +278,23 @@ func (l *Build) Test() (exists, matched bool) {
 	}
 	if l.fullEnv() {
 		if err := setupLinkEnv(env, l.links); err != nil {
-			l.Err = err
-			return
+			return false, false, err
 		}
 	}
 	env["APP"] = l.AppDir
 	if l.TestRunner != nil {
 		if err := l.TestRunner.Test(l.Streamer, env, md); err != nil {
-			l.Err = err
-			return false, false
+			return false, false, err
 		}
 	}
 	if err := l.Metadata.Delete(".requires"); err != nil {
-		l.Err = err
-		return false, false
+		return false, false, err
 	}
 
 	layerTOMLPath := l.LayerDir + ".toml"
 	layerTOML, err := readLayerTOML(layerTOMLPath)
 	if err != nil {
-		l.Err = err
-		return false, false
+		return false, false, err
 	}
 	layerTOML.Cache = l.Layer.Store
 	layerTOML.Build = mdToBool(l.Metadata.Read("build"))
@@ -325,52 +315,42 @@ func (l *Build) Test() (exists, matched bool) {
 	layerTOML.Metadata.CodeDigest = newDigest
 
 	if err := writeTOML(layerTOML, layerTOMLPath); err != nil {
-		l.Err = err
-		return false, false
+		return false, false, err
 	}
 
 	if cachedBuildID != l.LastBuildID ||
 		newDigest != oldDigest ||
 		newVersion != oldVersion ||
 		l.provide().LockApp {
-		return false, false
+		return false, false, nil
 	}
 	if _, err := os.Stat(l.LayerDir); xerrors.Is(err, os.ErrNotExist) {
-		return false, !l.Layer.Expose && !l.Layer.Store
+		return false, !l.Layer.Expose && !l.Layer.Store, nil
 	}
-	return true, true
+	return true, true, nil
 }
 
 func mdToBool(s string, err error) bool {
 	return err == nil && s == "true"
 }
 
-func (l *Build) Run() {
-	if l.Err != nil {
-		return
-	}
+func (l *Build) Run() error {
 	fmt.Fprintf(l.Stdout(), "Building layer '%s'...\n", l.Layer.Name)
 	if err := os.RemoveAll(l.LayerDir); err != nil {
-		l.Err = err
-		return
+		return err
 	}
 
 	env := packfile.NewEnvMap(os.Environ())
 	md := newMetadataMap(l.Metadata)
 
 	for _, link := range l.links {
-		if link.Err != nil {
-			l.Err = xerrors.Errorf("link '%s' failed: %w", link.Name, link.Err)
-			return
-		}
 		if link.PathEnv != "" {
 			env[link.PathEnv] = link.LayerDir
 		}
 		if link.VersionEnv != "" {
 			lt, err := readLayerTOML(link.layerTOML())
 			if err != nil {
-				l.Err = err
-				return
+				return err
 			}
 			env[link.VersionEnv] = lt.Metadata.Version
 		}
@@ -379,41 +359,34 @@ func (l *Build) Run() {
 		}
 	}
 	if err := setupLinkEnv(env, l.links); err != nil {
-		l.Err = err
-		return
+		return err
 	}
 	if err := os.MkdirAll(l.LayerDir, 0777); err != nil {
-		l.Err = err
-		return
+		return err
 	}
 	if err := l.setupEnvs(env); err != nil {
-		l.Err = err
-		return
+		return err
 	}
 	if err := l.setupProfile(); err != nil {
-		l.Err = err
-		return
+		return err
 	}
 	deps, err := l.deps()
 	if err != nil {
-		l.Err = err
-		return
+		return err
 	}
 
 	env["APP"] = l.AppDir
 	env["LAYER"] = l.LayerDir
 	if l.ProvideRunner != nil {
 		if err := l.ProvideRunner.Provide(l.Streamer, env, md, deps); err != nil {
-			l.Err = err
-			return
+			return err
 		}
 	}
 
 	layerTOMLPath := l.LayerDir + ".toml"
 	layerTOML, err := readLayerTOML(layerTOMLPath)
 	if err != nil {
-		l.Err = err
-		return
+		return err
 	}
 	versionStr := "."
 	if v, err := md.Read("version"); err == nil {
@@ -422,30 +395,24 @@ func (l *Build) Run() {
 	fmt.Fprintf(l.Stdout(), "Built layer '%s'%s\n", l.Layer.Name, versionStr)
 	saved, err := l.Metadata.ReadAll()
 	if err != nil {
-		l.Err = err
-		return
+		return err
 	}
 	delete(saved, "launch")
 	delete(saved, "build")
 	layerTOML.Metadata.Saved = saved
-	l.Err = writeTOML(layerTOML, layerTOMLPath)
+	return writeTOML(layerTOML, layerTOMLPath)
 }
 
-func (l *Build) Skip() {
-	if l.Err != nil {
-		return
-	}
+func (l *Build) Skip() error {
 	fmt.Fprintf(l.Stdout(), "Skipping layer '%s'.\n", l.Layer.Name)
 
 	layerTOMLPath := l.LayerDir + ".toml"
 	layerTOML, err := readLayerTOML(layerTOMLPath)
 	if err != nil {
-		l.Err = err
-		return
+		return err
 	}
 	if err := l.Metadata.DeleteAll(); err != nil {
-		l.Err = err
-		return
+		return err
 	}
 	saved := layerTOML.Metadata.Saved
 	if layerTOML.Launch {
@@ -454,7 +421,7 @@ func (l *Build) Skip() {
 	if layerTOML.Build {
 		saved["build"] = "true"
 	}
-	l.Err = l.Metadata.WriteAll(saved)
+	return l.Metadata.WriteAll(saved)
 }
 
 func (l *Build) digest() string {

@@ -30,8 +30,9 @@ func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
 	if s := pf.Config.Shell; s != "" {
 		shell = s
 	}
+	lock := sync.NewLock()
 	var provides []planProvide
-	var streamLayers []layers.StreamLayer
+	var linkLayers []link.Layer
 	for i := range pf.Layers {
 		layer := &pf.Layers[i]
 		if layer.Provide != nil || layer.Build != nil {
@@ -47,6 +48,7 @@ func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
 		defer os.RemoveAll(mdDir)
 		detectLayer := &layers.Detect{
 			Streamer: sync.NewStreamer(),
+			Kernel:   sync.NewKernel(layer.Name, lock),
 			Layer:    layer,
 			AppDir:   appDir,
 		}
@@ -65,21 +67,21 @@ func Detect(pf *packfile.Packfile, ctxDir, platformDir, planPath string) error {
 		} else {
 			detectLayer.Metadata = metadata.NewMemory()
 		}
-		streamLayers = append(streamLayers, detectLayer)
+		linkLayers = append(linkLayers, detectLayer)
 	}
-	linkLayers := toLinkLayers(streamLayers)
-	syncLayers := link.Layers(linkLayers)
-	for i := range syncLayers {
+	lock.Add(len(linkLayers))
+	link.Layers(linkLayers)
+	for i := range linkLayers {
 		go func(i int) {
-			defer streamLayers[i].Close()
-			syncLayers[i].Run()
+			defer linkLayers[i].Close()
+			sync.RunNode(linkLayers[i])
 		}(i)
 	}
-	for i := range streamLayers {
-		streamLayers[i].Stream(os.Stdout, os.Stderr)
+	for i := range linkLayers {
+		linkLayers[i].Stream(os.Stdout, os.Stderr)
 	}
-	for i := range syncLayers {
-		syncLayers[i].Wait()
+	for i := range linkLayers {
+		sync.WaitForNode(linkLayers[i])
 	}
 	requires, err := link.Requires(linkLayers)
 	if err != nil {
